@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- App Sandbox: required for eventual /Applications distribution (per plan). -->
+	<key>com.apple.security.app-sandbox</key>
+	<true/>
+	<!-- Outbound HTTPS to the NAS. -->
+	<key>com.apple.security.network.client</key>
+	<true/>
+	<!-- Read/write files the user explicitly picks (upload sources, download folder). -->
+	<key>com.apple.security.files.user-selected.read-write</key>
+	<true/>
+	<!-- App-scoped security-scoped bookmarks: keep access to the chosen download
+	     folder across launches so the transfer queue can resume (per plan §4). -->
+	<key>com.apple.security.files.bookmarks.app-scope</key>
+	<true/>
+</dict>
+</plist>

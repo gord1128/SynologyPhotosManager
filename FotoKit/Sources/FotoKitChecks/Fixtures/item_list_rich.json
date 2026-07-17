@@ -1,0 +1,184 @@
+{
+  "data": {
+    "list": [
+      {
+        "additional": {
+          "address": {
+            "city": "샘플시",
+            "city_id": "샘플시",
+            "country": "샘플국",
+            "country_id": "샘플국",
+            "county": "",
+            "county_id": "",
+            "district": "",
+            "district_id": "",
+            "landmark": "",
+            "landmark_id": "",
+            "route": "샘플로",
+            "route_id": "",
+            "state": "",
+            "state_id": "",
+            "town": "",
+            "town_id": "",
+            "village": "",
+            "village_id": ""
+          },
+          "exif": {
+            "aperture": "F2.2",
+            "camera": "iPhone 17",
+            "exposure_time": "1/120 s",
+            "focal_length": "2.2 mm",
+            "iso": "250",
+            "lens": "iPhone 17 back dual wide camera 2.22mm f/2.2"
+          },
+          "gps": {
+            "latitude": 12.3456,
+            "longitude": 65.4321
+          },
+          "orientation": 6,
+          "orientation_original": 6,
+          "resolution": {
+            "height": 5712,
+            "width": 4284
+          },
+          "tag": [],
+          "thumbnail": {
+            "cache_key": "4598_1783667422",
+            "m": "ready",
+            "preview": "broken",
+            "sm": "ready",
+            "unit_id": 4598,
+            "xl": "ready"
+          }
+        },
+        "filename": "IMG_SAMPLE_0001.HEIC",
+        "filesize": 2650030,
+        "folder_id": 91,
+        "id": 4598,
+        "indexed_time": 1783699821383,
+        "owner_user_id": 1,
+        "time": 1783697395,
+        "type": "photo"
+      },
+      {
+        "additional": {
+          "address": {
+            "city": "샘플시",
+            "city_id": "샘플시",
+            "country": "샘플국",
+            "country_id": "샘플국",
+            "county": "",
+            "county_id": "",
+            "district": "",
+            "district_id": "",
+            "landmark": "",
+            "landmark_id": "",
+            "route": "샘플로",
+            "route_id": "",
+            "state": "",
+            "state_id": "",
+            "town": "",
+            "town_id": "",
+            "village": "",
+            "village_id": ""
+          },
+          "exif": {
+            "aperture": "F2.2",
+            "camera": "iPhone 17",
+            "exposure_time": "1/120 s",
+            "focal_length": "2.2 mm",
+            "iso": "250",
+            "lens": "iPhone 17 back dual wide camera 2.22mm f/2.2"
+          },
+          "gps": {
+            "latitude": 12.3456,
+            "longitude": 65.4321
+          },
+          "orientation": 6,
+          "orientation_original": 6,
+          "resolution": {
+            "height": 5712,
+            "width": 4284
+          },
+          "tag": [],
+          "thumbnail": {
+            "cache_key": "4593_1783667398",
+            "m": "ready",
+            "preview": "broken",
+            "sm": "ready",
+            "unit_id": 4593,
+            "xl": "ready"
+          }
+        },
+        "filename": "IMG_SAMPLE_0002.HEIC",
+        "filesize": 2686513,
+        "folder_id": 91,
+        "id": 4593,
+        "indexed_time": 1783699797052,
+        "owner_user_id": 1,
+        "time": 1783697393,
+        "type": "photo"
+      },
+      {
+        "additional": {
+          "address": {
+            "city": "샘플시",
+            "city_id": "샘플시",
+            "country": "샘플국",
+            "country_id": "샘플국",
+            "county": "",
+            "county_id": "",
+            "district": "",
+            "district_id": "",
+            "landmark": "",
+            "landmark_id": "",
+            "route": "샘플로",
+            "route_id": "",
+            "state": "",
+            "state_id": "",
+            "town": "",
+            "town_id": "",
+            "village": "",
+            "village_id": ""
+          },
+          "exif": {
+            "aperture": "F2.2",
+            "camera": "iPhone 17",
+            "exposure_time": "1/120 s",
+            "focal_length": "2.2 mm",
+            "iso": "250",
+            "lens": "iPhone 17 back dual wide camera 2.22mm f/2.2"
+          },
+          "gps": {
+            "latitude": 12.3456,
+            "longitude": 65.4321
+          },
+          "orientation": 6,
+          "orientation_original": 6,
+          "resolution": {
+            "height": 5712,
+            "width": 4284
+          },
+          "tag": [],
+          "thumbnail": {
+            "cache_key": "4601_1783667450",
+            "m": "ready",
+            "preview": "broken",
+            "sm": "ready",
+            "unit_id": 4601,
+            "xl": "ready"
+          }
+        },
+        "filename": "IMG_SAMPLE_0003.HEIC",
+        "filesize": 2688859,
+        "folder_id": 91,
+        "id": 4601,
+        "indexed_time": 1783699850110,
+        "owner_user_id": 1,
+        "time": 1783697391,
+        "type": "photo"
+      }
+    ]
+  },
+  "success": true
+}

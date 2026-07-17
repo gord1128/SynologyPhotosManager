@@ -1,0 +1,20 @@
+# Build artifacts
+.build/
+DerivedData/
+*.xcuserstate
+xcuserdata/
+
+# macOS
+.DS_Store
+
+# The .xcodeproj is generated from project.yml by xcodegen.
+# Regenerate with: xcodegen generate
+SynologyPhotosManager.xcodeproj/
+
+# SynoKit is a sibling package at ../SynoKit (not vendored here).
+
+# Phase 0 spike raw captures contain real personal photo metadata (GPS,
+# addresses, filenames) — never commit. Sanitized copies live in
+# FotoKit/Sources/FotoKitChecks/Fixtures/ for tests.
+spike/fixtures/
+spike/.build/

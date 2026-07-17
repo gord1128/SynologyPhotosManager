@@ -1,0 +1,15 @@
+{
+  "data" : {
+    "folder" : {
+      "id" : 2,
+      "name" : "\/",
+      "owner_user_id" : 1,
+      "parent" : 2,
+      "passphrase" : "",
+      "shared" : false,
+      "sort_by" : "default",
+      "sort_direction" : "default"
+    }
+  },
+  "success" : true
+}
