@@ -394,7 +394,7 @@ public final class FotoService: @unchecked Sendable {
 
     /// Names (or renames) a recognized person. Method `set` on `Browse.Person`;
     /// the `name` value is **JSON-encoded** (verified live: a plain empty value
-    /// → err 120, but `""` clears it, and `"<person>"` stores unquoted). An empty
+    /// → err 120, but `""` clears it, and `"홍길동"` stores unquoted). An empty
     /// string clears the name (cluster becomes "unnamed").
     public func renamePerson(id: Int, name: String) async throws {
         try await client.performSuccess(api: browse("Person"), method: "set", queryItems: [

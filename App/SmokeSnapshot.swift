@@ -185,7 +185,7 @@ enum SmokeSnapshot {
         guard let (service, _) = await connect() else {
             try? "connect failed".data(using: .utf8)?.write(to: URL(fileURLWithPath: outPath + ".error")); exit(4)
         }
-        let keyword = "<person>"
+        let keyword = "홍길동"
         let items = (try? await service.search(keyword: keyword)) ?? []
         var loaded: [(FotoItem, NSImage)] = []
         for item in items.prefix(28) {

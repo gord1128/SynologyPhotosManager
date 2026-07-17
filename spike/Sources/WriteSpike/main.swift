@@ -1433,7 +1433,7 @@ func filterMoreProbe() async {
     func hasPerson(_ it: [String: Any], _ pid: Int) -> Bool {
         (((it["additional"] as? [String: Any])?["person"] as? [[String: Any]]) ?? []).contains { ($0["id"] as? Int) == pid }
     }
-    // Person filter: person=[2] → all contain person 2? count vs <person>'s 79.
+    // Person filter: person=[2] → all contain person 2? count vs 홍길동's 79.
     let p2 = await browse([URLQueryItem(name: "item_type", value: "[0,1]"),
                            URLQueryItem(name: "person", value: "[2]"), URLQueryItem(name: "person_policy", value: "or")])
     print("person=[2]: count=\(p2.count) allContainP2=\(p2.allSatisfy { hasPerson($0, 2) })")
@@ -1530,7 +1530,7 @@ func searchProbe() async {
         print("suggest '\(kw)': \(list.count) → \(jstr(Array(list.prefix(4))))")
     }
     // list_item: actual results. Try each keyword; inspect result count + item schema.
-    for kw in ["<person>", "IMG", "video"] {
+    for kw in ["홍길동", "IMG", "video"] {
         let r = await raw("SYNO.Foto.Search.Search", "list_item", [
             URLQueryItem(name: "keyword", value: kw),
             URLQueryItem(name: "offset", value: "0"), URLQueryItem(name: "limit", value: "5"),
@@ -1773,8 +1773,8 @@ func faceHunt() async {
     let info = await raw("SYNO.API.Info", "query", [URLQueryItem(name: "query", value: "SYNO.Foto.Browse.Person,SYNO.Foto.Browse.RecognitionFace,SYNO.Foto.Browse.Face,SYNO.FotoTeam.Browse.Person")])
     if let data = info?["data"] as? [String: Any] { print("   known: \(data.keys.sorted())") }
 
-    // 4) type=face thumbnail on <person>'s cover, and re-check type=person now.
-    print("\n── <person> (id=2) cover thumbnail re-check:")
+    // 4) type=face thumbnail on 홍길동's cover, and re-check type=person now.
+    print("\n── 홍길동 (id=2) cover thumbnail re-check:")
     let pl = await raw("SYNO.Foto.Browse.Person", "list", [URLQueryItem(name: "offset", value: "0"), URLQueryItem(name: "limit", value: "3"), URLQueryItem(name: "additional", value: "[\"thumbnail\"]")])
     let p2 = ((pl?["data"] as? [String: Any])?["list"] as? [[String: Any]])?.first { ($0["id"] as? Int) == 2 }
     let cover = p2?["cover"] as? Int ?? -1
@@ -1942,7 +1942,7 @@ func personSetCoverVerify() async {
 // MARK: - Find the param that actually filters items by person
 
 func personFilterProbe() async {
-    let pid = 2  // <person>, item_count 61
+    let pid = 2  // 홍길동, item_count 61
     func ids(_ query: [URLQueryItem]) async -> (ids: [Int], err: String) {
         let r = await raw("SYNO.Foto.Browse.Item", "list",
                           query + [URLQueryItem(name: "offset", value: "0"), URLQueryItem(name: "limit", value: "100")])
@@ -2027,7 +2027,7 @@ func personCoverProbe() async {
     print("candidate new cover: item id=\(candItemId) unit_id=\(candUnit)\n")
 
     // `set` seems to require `name`; include it (JSON) alongside each cover shape.
-    let curName = "\"<person>\""
+    let curName = "\"홍길동\""
     func base() -> [URLQueryItem] { [URLQueryItem(name: "id", value: "\(pid)"), URLQueryItem(name: "name", value: curName)] }
     let attempts: [(String, [URLQueryItem])] = [
         ("name + cover=itemId",    base() + [URLQueryItem(name: "cover", value: "\(candItemId)")]),
@@ -2074,7 +2074,7 @@ func personCoverProbe() async {
     // set_cover EXISTS — find its exact param. Try each; revert on any change.
     print("── set_cover param probe (candidate value \(candItemId)):")
     var worked: (label: String, method: String, param: String)?
-    let n = "\"<person>\""
+    let n = "\"홍길동\""
     let coverAttempts: [(String, String, [URLQueryItem])] = [
         ("set cover=item", "set", [URLQueryItem(name: "id", value: "\(pid)"), URLQueryItem(name: "name", value: n), URLQueryItem(name: "cover", value: "\(candItemId)")]),
         ("set_cover person_id+item_id", "set_cover", [URLQueryItem(name: "person_id", value: "\(pid)"), URLQueryItem(name: "item_id", value: "\(candItemId)")]),
