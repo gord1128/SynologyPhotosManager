@@ -1401,8 +1401,8 @@ func placesProbe() async {
         ])
         return (((r?["data"] as? [String: Any])?["list"] as? [[String: Any]]) ?? []).count
     }
-    print("\nlist_with_filter geocoding=[1] (flat a city): \(await geoCount(1))")
-    print("list_with_filter geocoding=[2] (tree a city): \(await geoCount(2))")
+    print("\nlist_with_filter geocoding=[1] (flat city id): \(await geoCount(1))")
+    print("list_with_filter geocoding=[2] (tree city id): \(await geoCount(2))")
 
     // 2) Search.Filter list_in_similar — the filter panel; its response should
     //    carry geocoding places with names. Send the facet setting like the web.

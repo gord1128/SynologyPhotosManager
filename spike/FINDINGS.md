@@ -1,6 +1,6 @@
 # Phase 0 Spike — Findings (real NAS, DSM)
 
-Captured live from <nas-host>:5001 (personal space, 2687 items). Raw responses
+Captured live from the personal NAS (LAN, port 5001; personal space, 2687 items). Raw responses
 in `fixtures/`. All calls here are **read-only**; write/delete behavior is NOT yet
 tested (deliberately deferred — see open questions).
 
@@ -70,7 +70,7 @@ load all coords up front, cluster client-side. No place-index needed.**
 - **Probe B — geocoding facet** (`SYNO.Foto.Search.Filter list_in_similar` v4,
   `setting` geocoding:true): returns a place TREE — nodes are
   `{id, level, name, children}` ONLY, **no per-place count**. Levels: 1=country
-  (대한민국/일본), 3=city/county (a city/a county…), 5=town. So the facet can drive a
+  (country), 3=city/county, 5=town. So the facet can drive a
   "browse by place" list but can't show counts without querying, and isn't
   needed for map pins.
 - **Probe C — `Browse.SimilarItem list_with_filter` v2 `geocoding=[id]`**:
