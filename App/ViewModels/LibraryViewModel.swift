@@ -84,12 +84,57 @@ final class LibraryViewModel {
     }
 
     func clearAllFilters() {
+        resetFilterSelections()
+        Task { await applyFilters() }
+    }
+
+    // MARK: - Smart albums (saved filters)
+
+    /// Snapshots the current filter selection as a persistable criteria (T2).
+    var currentCriteria: SmartAlbumCriteria {
+        SmartAlbumCriteria(
+            typeFilterRaw: typeFilter.rawValue,
+            favoriteOnly: favoriteOnly,
+            dateFilterActive: dateFilterActive,
+            startDate: startDate, endDate: endDate,
+            personIds: selectedPersonIds.sorted(),
+            personPolicyRaw: personPolicy.rawValue,
+            countryIds: selectedCountryIds.sorted(),
+            cameraIds: selectedCameraIds.sorted(),
+            lensIds: selectedLensIds.sorted(),
+            isoIds: selectedIsoIds.sorted(),
+            apertureIds: selectedApertureIds.sorted())
+    }
+
+    /// Restores a saved filter and re-runs the timeline (used when a smart album
+    /// is opened from the sidebar).
+    func apply(_ c: SmartAlbumCriteria) {
+        typeFilter = TypeFilter(rawValue: c.typeFilterRaw) ?? .all
+        favoriteOnly = c.favoriteOnly
+        dateFilterActive = c.dateFilterActive
+        startDate = c.startDate
+        endDate = c.endDate
+        selectedPersonIds = Set(c.personIds)
+        personPolicy = PersonPolicy(rawValue: c.personPolicyRaw) ?? .or
+        selectedCountryIds = Set(c.countryIds)
+        selectedCameraIds = Set(c.cameraIds)
+        selectedLensIds = Set(c.lensIds)
+        selectedIsoIds = Set(c.isoIds)
+        selectedApertureIds = Set(c.apertureIds)
+        Task { await applyFilters() }
+    }
+
+    /// Clears every filter selection WITHOUT reloading. Used on a personal↔shared
+    /// space switch: the id-based facets (people, places, camera/lens/…) are
+    /// space-specific — `person_id` especially is unique per space — so carrying a
+    /// previous space's selections over would filter the new space by invalid ids
+    /// (wrong / empty results). The caller reloads afterwards.
+    func resetFilterSelections() {
         typeFilter = .all
         favoriteOnly = false
         dateFilterActive = false
         selectedPersonIds = []; selectedCountryIds = []
         selectedCameraIds = []; selectedLensIds = []; selectedIsoIds = []; selectedApertureIds = []
-        Task { await applyFilters() }
     }
 
     // MARK: -

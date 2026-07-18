@@ -53,3 +53,34 @@ owner_user_id, passphrase, shared, sort_by, sort_direction`.
   `[]`; real album fields still unverified. Build Album models only after
   capturing a populated response.
 - **Item move** across folders — API not identified yet.
+
+---
+
+## T3 map-view spike (`swift run MapSpike`, read-only) — 2026-07-18
+
+Goal: cheapest way to collect photo coordinates for a map view. Live NAS
+(2813 items). Result: **paging with `additional=["gps"]` is trivially cheap →
+load all coords up front, cluster client-side. No place-index needed.**
+
+- **Probe A — page all with `additional=["gps"]`**: the WHOLE library (2813
+  items) paged in **6 pages of 500, 0.78 s, 648 KB** (~230 B/item). **84 % have
+  GPS → ~2353 geolocated photos.** So a one-shot "load every coordinate" is
+  <1 s / <1 MB here — no server-side geo query needed. (GPS shape:
+  `additional.gps = {latitude, longitude}`; (0,0) treated as none.)
+- **Probe B — geocoding facet** (`SYNO.Foto.Search.Filter list_in_similar` v4,
+  `setting` geocoding:true): returns a place TREE — nodes are
+  `{id, level, name, children}` ONLY, **no per-place count**. Levels: 1=country
+  (대한민국/일본), 3=city/county (a city/a county…), 5=town. So the facet can drive a
+  "browse by place" list but can't show counts without querying, and isn't
+  needed for map pins.
+- **Probe C — `Browse.SimilarItem list_with_filter` v2 `geocoding=[id]`**:
+  returns that place's items with **GPS + full address inline**
+  (`additional.address` has city/country/county/district/landmark/route/state/
+  town/village + *_id each). Good for a "tap a place → its photos" drill-down,
+  but Probe A already yields everything for the map.
+
+**T3 decision:** load all items once with `additional=["gps","thumbnail"]`,
+keep the ~2353 with coords in memory, cluster client-side (grid/zoom buckets),
+tap a cluster → filter the in-memory set by region (no extra query). Optional
+later: a "browse by place" list from the geocoding tree (Probe B) + drill-down
+(Probe C). All read-only, all on already-verified calls.

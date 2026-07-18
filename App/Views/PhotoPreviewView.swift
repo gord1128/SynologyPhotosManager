@@ -169,10 +169,39 @@ struct PhotoPreviewView: View {
         }
         videoState = .loading
         streamLoader = loader
-        let p = AVPlayer(playerItem: AVPlayerItem(asset: asset))
+        let playerItem = AVPlayerItem(asset: asset)
+        let p = AVPlayer(playerItem: playerItem)
         player = p
-        videoState = .ready
-        p.play()
+        // Don't assume readiness: wait for the item to actually become playable.
+        // A stream failure (cert/network/unsupported codec) or a stall would
+        // otherwise leave a black frame stuck on `.ready` with no error shown.
+        if await waitUntilReady(playerItem, timeout: .seconds(20)) {
+            guard !Task.isCancelled else { return }
+            videoState = .ready
+            p.play()
+        } else {
+            guard !Task.isCancelled else { return }
+            p.pause()
+            player = nil
+            streamLoader = nil
+            videoState = .failed
+        }
+    }
+
+    /// Polls `AVPlayerItem.status` until it's playable, fails, or times out.
+    /// Simpler than KVO/Combine and cancels cleanly with the enclosing `.task`.
+    private func waitUntilReady(_ item: AVPlayerItem, timeout: Duration) async -> Bool {
+        let deadline = ContinuousClock.now.advanced(by: timeout)
+        while ContinuousClock.now < deadline {
+            if Task.isCancelled { return false }
+            switch item.status {
+            case .readyToPlay: return true
+            case .failed: return false
+            default: break
+            }
+            try? await Task.sleep(for: .milliseconds(150))
+        }
+        return false   // timed out → treat as failed
     }
 
     private func teardownVideo() {

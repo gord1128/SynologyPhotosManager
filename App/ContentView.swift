@@ -12,6 +12,9 @@ struct ContentView: View {
     @State private var people: PeopleViewModel?
     @State private var similar: SimilarPhotosViewModel?
     @State private var recent: ItemGridViewModel?
+    @State private var triage: TriageViewModel?
+    @State private var memories: MemoriesViewModel?
+    @State private var mapVM: MapViewModel?
     @State private var showingAdd = false
     @State private var showingPreview = false
 
@@ -173,6 +176,9 @@ struct ContentView: View {
         .sheet(item: $model.pendingCertificate) { challenge in
             CertificateTrustView(challenge: challenge).environment(model)
         }
+        .sheet(item: $model.exportRequest) { request in
+            ExportOptionsView(items: request.items).environment(model)
+        }
         // Create/tear down the VMs as the connection changes.
         .task(id: model.fotoService.map(ObjectIdentifier.init)) {
             if let service = model.fotoService {
@@ -185,6 +191,9 @@ struct ContentView: View {
                 recent = ItemGridViewModel(loader: lib.thumbnailLoader) { offset, limit in
                     try await service.recentlyAdded(offset: offset, limit: limit)
                 }
+                triage = TriageViewModel(service: service)
+                memories = MemoriesViewModel(service: service)
+                mapVM = MapViewModel(service: service)
                 await lib.loadInitial()
                 // Dev hook: pre-select the first item so the inspector can be
                 // screenshotted headlessly. Read from UserDefaults (set via
@@ -201,16 +210,28 @@ struct ContentView: View {
                 people = nil
                 similar = nil
                 recent = nil
+                triage = nil
+                memories = nil
+                mapVM = nil
             }
         }
         // Reload when the user switches personal/shared space.
         .onChange(of: model.space) {
+            // Filter selections are id-based and space-specific (person_id etc.),
+            // so drop them before reloading — otherwise the new space is queried
+            // with the old space's invalid ids (wrong / empty results). See B1.
+            library?.resetFilterSelections()
             Task { await library?.reload() }
             Task { await folders?.navigate(to: nil) }
             Task { await albums?.reload() }
             Task { await people?.reload() }
             Task { await similar?.reload() }
             Task { await recent?.reload() }
+            // Triage is a fresh keep/delete pass per space — recreate it so the
+            // new space's items (and no carried-over decisions) drive the cards.
+            if let service = model.fotoService { triage = TriageViewModel(service: service) }
+            Task { await memories?.reload() }
+            Task { await mapVM?.reload() }
         }
         // Silent reconnect on launch if a credential is stored.
         .task { await model.connectSavedIfPossible() }
@@ -226,11 +247,17 @@ struct ContentView: View {
         .onChange(of: model.deletionCounter) {
             library?.removeItems(ids: model.deletedIDs)
             folders?.removeItems(ids: model.deletedIDs)
+            triage?.applyCommitted(deletedIDs: model.deletedIDs)
             Task { await albums?.reload() }
             Task { await people?.reload() }
         }
         // Route main-menu commands to whichever center view is active.
         .onChange(of: model.menuCommandCounter) { dispatchMenuCommand() }
+        // Opening a smart album (from the sidebar) applies its saved filter to the
+        // timeline — the LibraryViewModel lives here, so apply it here.
+        .onChange(of: model.applyCriteriaCounter) {
+            if let criteria = model.pendingCriteria { library?.apply(criteria) }
+        }
     }
 
     /// Applies a menu command (from `AppModel`'s bus) to the active view. Filter
@@ -246,6 +273,9 @@ struct ContentView: View {
         case .download:
             let items = onFolders ? (folders?.selectedItems ?? []) : (library?.selectedItems ?? [])
             if !items.isEmpty { Task { await model.downloadItems(items) } }
+        case .export:
+            let items = onFolders ? (folders?.selectedItems ?? []) : (library?.selectedItems ?? [])
+            model.requestExport(items)
         case .delete:
             let items = onFolders ? (folders?.selectedItems ?? []) : (library?.selectedItems ?? [])
             if !items.isEmpty { Task { await model.deleteItems(items) } }
@@ -292,6 +322,18 @@ struct ContentView: View {
                 if let similar {
                     SimilarPhotosView(vm: similar)
                 }
+            case .triage:
+                if let triage {
+                    TriageView(vm: triage)
+                }
+            case .memories:
+                if let memories {
+                    MemoriesView(vm: memories)
+                }
+            case .map:
+                if let mapVM {
+                    MapView(vm: mapVM)
+                }
             }
         } else {
             connectingPane
@@ -325,7 +367,7 @@ struct SidebarView: View {
         @Bindable var model = model
         List(selection: $model.selectedSidebarItem) {
             Section("보관함") {
-                ForEach([SidebarItem.timeline, .recent, .folders, .albums, .people]) { item in
+                ForEach([SidebarItem.timeline, .recent, .memories, .map, .folders, .albums, .people]) { item in
                     Label(item.title, systemImage: item.systemImage).tag(item)
                 }
             }
@@ -333,6 +375,27 @@ struct SidebarView: View {
             // similar photos into expandable stacks, absorbing its purpose. The
             // SimilarPhotos view/VM + `.similar` case are kept (unreached) so the
             // dedicated batch-cleanup screen can be restored later.
+            Section("정리") {
+                Label(SidebarItem.triage.title, systemImage: SidebarItem.triage.systemImage)
+                    .tag(SidebarItem.triage)
+            }
+            // Saved timeline filters (T2). Opening one selects the timeline and
+            // applies its filter; these rows aren't `SidebarItem` selections.
+            if !model.currentSpaceSmartAlbums.isEmpty {
+                Section("스마트 앨범") {
+                    ForEach(model.currentSpaceSmartAlbums) { album in
+                        Button {
+                            model.openSmartAlbum(album)
+                        } label: {
+                            Label(album.name, systemImage: "line.3.horizontal.decrease.circle")
+                        }
+                        .buttonStyle(.plain)
+                        .contextMenu {
+                            Button("삭제", role: .destructive) { model.deleteSmartAlbum(album) }
+                        }
+                    }
+                }
+            }
         }
         .listStyle(.sidebar)
         .safeAreaInset(edge: .bottom) { ConnectionStatusBar() }

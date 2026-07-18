@@ -11,26 +11,32 @@ extension FotoSpace {
 
 /// Top-level sidebar destinations (plan §5).
 enum SidebarItem: String, CaseIterable, Identifiable, Hashable {
-    case timeline, recent, folders, albums, people, similar
+    case timeline, recent, memories, map, folders, albums, people, similar, triage
     var id: String { rawValue }
     var title: String {
         switch self {
         case .timeline: return "타임라인"
         case .recent: return "최근 추가"
+        case .memories: return "추억"
+        case .map: return "지도"
         case .folders: return "폴더"
         case .albums: return "앨범"
         case .people: return "사람"
         case .similar: return "유사한 항목"
+        case .triage: return "정리"
         }
     }
     var systemImage: String {
         switch self {
         case .timeline: return "clock"
         case .recent: return "sparkles"
+        case .memories: return "clock.arrow.circlepath"
+        case .map: return "map"
         case .folders: return "folder"
         case .albums: return "rectangle.stack"
         case .people: return "person.2"
         case .similar: return "square.on.square.dashed"
+        case .triage: return "tray.full"
         }
     }
 }
@@ -153,16 +159,29 @@ final class AppModel {
     }
 
     func addToAlbum(_ items: [FotoItem], albumId: Int) async {
-        guard !items.isEmpty else { return }
-        try? await fotoService?.addItems(albumId: albumId, itemIds: items.map(\.id))
+        guard let service = fotoService, !items.isEmpty else { return }
+        do {
+            try await service.addItems(albumId: albumId, itemIds: items.map(\.id))
+            showInfo(items.count > 1 ? "\(items.count)장을 앨범에 추가했습니다." : "앨범에 추가했습니다.")
+        } catch {
+            showError("앨범에 추가 실패: \((error as? LocalizedError)?.errorDescription ?? error.localizedDescription)")
+        }
     }
 
     /// Creates a new album containing `items`.
     func createAlbum(named name: String, with items: [FotoItem]) async {
         guard let service = fotoService else { return }
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty, let album = try? await service.createAlbum(name: trimmed) else { return }
-        if !items.isEmpty { try? await service.addItems(albumId: album.id, itemIds: items.map(\.id)) }
+        guard !trimmed.isEmpty else { return }
+        do {
+            let album = try await service.createAlbum(name: trimmed)
+            if !items.isEmpty { try await service.addItems(albumId: album.id, itemIds: items.map(\.id)) }
+            showInfo(items.isEmpty
+                ? "'\(trimmed)' 앨범을 만들었습니다."
+                : "'\(trimmed)' 앨범에 \(items.count)장을 담았습니다.")
+        } catch {
+            showError("앨범 생성 실패: \((error as? LocalizedError)?.errorDescription ?? error.localizedDescription)")
+        }
     }
 
     // MARK: - User notices (errors + brief confirmations)
@@ -309,7 +328,7 @@ final class AppModel {
     /// view is active. ContentView observes `menuCommandCounter` and routes
     /// `lastMenuCommand` to the active view model.
     enum MenuCommand: Equatable {
-        case selectAll, deselectAll, download, delete
+        case selectAll, deselectAll, download, export, delete
         case scale(TimelineScale), toggleFilter
     }
     private(set) var lastMenuCommand: MenuCommand?
@@ -317,6 +336,43 @@ final class AppModel {
     func sendMenuCommand(_ command: MenuCommand) {
         lastMenuCommand = command
         menuCommandCounter += 1
+    }
+
+    // MARK: - Smart albums (saved timeline filters — T2)
+
+    /// All saved smart albums (both spaces). Persisted locally; the sidebar shows
+    /// only those matching the current space via `smartAlbums(forCurrentSpace:)`.
+    private(set) var smartAlbums: [SmartAlbum] = SmartAlbumStore.load()
+
+    /// Smart albums valid in the space currently in view (their facet ids are
+    /// space-specific — see [[B1]] — so a personal rule stays out of shared).
+    var currentSpaceSmartAlbums: [SmartAlbum] {
+        smartAlbums.filter { $0.isShared == (space == .shared) }
+    }
+
+    /// Saves the given filter criteria as a new smart album in the current space.
+    func addSmartAlbum(name: String, criteria: SmartAlbumCriteria) {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        smartAlbums.append(SmartAlbum(name: trimmed, isShared: space == .shared, criteria: criteria))
+        SmartAlbumStore.save(smartAlbums)
+        showInfo("스마트 앨범 '\(trimmed)'을(를) 저장했습니다.")
+    }
+
+    func deleteSmartAlbum(_ album: SmartAlbum) {
+        smartAlbums.removeAll { $0.id == album.id }
+        SmartAlbumStore.save(smartAlbums)
+    }
+
+    /// Requests that a smart album be opened: switch to the timeline and apply its
+    /// saved filter. ContentView owns the LibraryViewModel, so it observes
+    /// `applyCriteriaCounter` and calls `library.apply(pendingCriteria)`.
+    private(set) var pendingCriteria: SmartAlbumCriteria?
+    private(set) var applyCriteriaCounter = 0
+    func openSmartAlbum(_ album: SmartAlbum) {
+        selectedSidebarItem = .timeline
+        pendingCriteria = album.criteria
+        applyCriteriaCounter += 1
     }
 
     /// Whether the timeline-only menu items (scale, filter) apply right now.
@@ -364,6 +420,92 @@ final class AppModel {
             showError("업로드: \(succeeded)개 성공, \(failures.count)개 실패 (\(sample)\(failures.count > 3 ? " 외" : ""))")
         }
         if succeeded > 0 { mutationCounter += 1 }
+    }
+
+    // MARK: - Export (presets — resize / convert / strip metadata, T5)
+
+    /// A pending export request → drives the options sheet in ContentView.
+    struct ExportRequest: Identifiable { let id = UUID(); let items: [FotoItem] }
+    var exportRequest: ExportRequest?
+    var isExporting = false
+
+    /// Opens the export-options sheet for the given items.
+    func requestExport(_ items: [FotoItem]) {
+        guard !items.isEmpty else { return }
+        exportRequest = ExportRequest(items: items)
+    }
+
+    /// Downloads each item's original and writes it out per `options` (photos are
+    /// resized/converted/stripped locally; videos export as-is). One item → a
+    /// chosen file; many → a chosen folder. Always writes locally (user picks).
+    func performExport(_ items: [FotoItem], options: ExportOptions) async {
+        guard let service = fotoService, !items.isEmpty, !isExporting else { return }
+        let single = items.count == 1
+        let destination: URL
+        if single {
+            let panel = NSSavePanel()
+            panel.canCreateDirectories = true
+            panel.nameFieldStringValue = ImageExporter.suggestedName(items[0].filename, isPhoto: items[0].type == .photo, options)
+            guard panel.runModal() == .OK, let url = panel.url else { return }
+            destination = url
+        } else {
+            let panel = NSOpenPanel()
+            panel.canChooseDirectories = true
+            panel.canChooseFiles = false
+            panel.canCreateDirectories = true
+            panel.prompt = "이 폴더로 내보내기"
+            guard panel.runModal() == .OK, let url = panel.url else { return }
+            destination = url
+        }
+
+        isExporting = true
+        defer { isExporting = false }
+        var ok = 0
+        var failures: [String] = []
+        for item in items {
+            do {
+                let isPhoto = item.type == .photo
+                let passThrough = ImageExporter.isPassThrough(isPhoto: isPhoto, options)
+                let target = single ? destination
+                    : uniqueURL(destination.appendingPathComponent(ImageExporter.suggestedName(item.filename, isPhoto: isPhoto, options)))
+                if passThrough {
+                    // Stream originals straight to disk (no buffering — safe for video).
+                    try await service.downloadOriginal(itemIds: [item.id], to: target)
+                } else {
+                    let original = try await service.originalData(itemIds: [item.id])
+                    guard let result = ImageExporter.export(originalData: original, filename: item.filename, isPhoto: isPhoto, options: options) else {
+                        failures.append(item.filename); continue
+                    }
+                    try result.data.write(to: target)
+                }
+                ok += 1
+            } catch {
+                failures.append(item.filename)
+            }
+        }
+        if failures.isEmpty {
+            showInfo(single ? "내보내기 완료" : "\(ok)장 내보내기 완료")
+        } else {
+            let sample = failures.prefix(3).joined(separator: ", ")
+            showError("내보내기: \(ok) 성공, \(failures.count) 실패 (\(sample)\(failures.count > 3 ? " 외" : ""))")
+        }
+    }
+
+    /// A non-colliding URL — appends " (2)", " (3)"… if the path already exists
+    /// (folder-export mode, where filenames can repeat).
+    private func uniqueURL(_ url: URL) -> URL {
+        let fm = FileManager.default
+        guard fm.fileExists(atPath: url.path) else { return url }
+        let dir = url.deletingLastPathComponent()
+        let ext = url.pathExtension
+        let stem = url.deletingPathExtension().lastPathComponent
+        var i = 2
+        while true {
+            let name = ext.isEmpty ? "\(stem) (\(i))" : "\(stem) (\(i)).\(ext)"
+            let candidate = dir.appendingPathComponent(name)
+            if !fm.fileExists(atPath: candidate.path) { return candidate }
+            i += 1
+        }
     }
 
     // MARK: - Download

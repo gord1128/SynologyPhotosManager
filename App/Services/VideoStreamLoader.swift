@@ -17,9 +17,26 @@ final class VideoStreamLoader: NSObject, AVAssetResourceLoaderDelegate {
     private let fetch: (URLRequest) async throws -> (Data, HTTPURLResponse)
     private let queue = DispatchQueue(label: "com.synologyphotos.videostream")
     private var tasks: [ObjectIdentifier: Task<Void, Never>] = [:]
-    /// Fetched once from the first range response.
-    private var totalLength: Int64?
-    private var contentUTI: String?
+
+    // `tasks` is only ever touched on `queue` (the delegate callbacks run there
+    // and the per-request Task marshals its own cleanup back with `queue.async`),
+    // so it needs no extra lock. But the content-info values below are read/written
+    // from the request-handling `Task`s, which run on the cooperative pool — NOT on
+    // `queue` — and several range requests can be in flight at once (playback +
+    // seek). Guard them with a lock so those concurrent accesses don't race.
+    private let stateLock = NSLock()
+    /// Fetched once from the first range response. Access only via the accessors.
+    private var _totalLength: Int64?
+    private var _contentUTI: String?
+
+    private var totalLength: Int64? {
+        get { stateLock.withLock { _totalLength } }
+        set { stateLock.withLock { _totalLength = newValue } }
+    }
+    private var contentUTI: String? {
+        get { stateLock.withLock { _contentUTI } }
+        set { stateLock.withLock { _contentUTI = newValue } }
+    }
 
     private init(realURL: URL, fetch: @escaping (URLRequest) async throws -> (Data, HTTPURLResponse)) {
         self.realURL = realURL

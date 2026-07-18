@@ -6,15 +6,21 @@ import FotoKit
 /// File type / date / people / place(countries) are always visible; the EXIF
 /// facets (camera/lens/ISO/aperture) are tucked under a collapsed "고급" section.
 struct FilterPanel: View {
+    @Environment(AppModel.self) private var model
     @Bindable var library: LibraryViewModel
+
+    @State private var showingSave = false
+    @State private var saveName = ""
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 12) {
-                HStack {
+                HStack(spacing: DS.s3) {
                     Text("필터").font(.headline)
                     Spacer()
                     if library.activeFilterCount > 0 {
+                        Button("스마트 앨범으로 저장") { saveName = ""; showingSave = true }
+                            .buttonStyle(.link)
                         Button("모두 지우기") { library.clearAllFilters() }.buttonStyle(.link)
                     }
                 }
@@ -81,6 +87,13 @@ struct FilterPanel: View {
         }
         .frame(width: 300, height: 460)
         .task { await library.loadFiltersIfNeeded() }
+        .alert("스마트 앨범 저장", isPresented: $showingSave) {
+            TextField("이름", text: $saveName)
+            Button("저장") { model.addSmartAlbum(name: saveName, criteria: library.currentCriteria) }
+            Button("취소", role: .cancel) {}
+        } message: {
+            Text("현재 필터 조합을 이름 붙여 사이드바에 저장합니다.")
+        }
     }
 
     private func apply() { Task { await library.applyFilters() } }

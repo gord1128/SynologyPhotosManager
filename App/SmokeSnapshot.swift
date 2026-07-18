@@ -1,6 +1,7 @@
 import SwiftUI
 import AppKit
 import AVFoundation
+import ImageIO
 import SynoKit
 import FotoKit
 
@@ -489,6 +490,129 @@ enum SmokeSnapshot {
             log += "no stacks found ⚠️"
         }
         done(log, 0)
+    }
+
+    /// Verifies the MAP data path (T3): MapViewModel pages every coordinate, and
+    /// the grid-clustering merges (coarse) vs splits (fine). No map tiles (those
+    /// need an on-screen MKMapView) — this checks the data + clustering logic.
+    @MainActor
+    static func runMap(outPath: String) async {
+        func done(_ msg: String, _ code: Int32) -> Never {
+            try? msg.data(using: .utf8)?.write(to: URL(fileURLWithPath: outPath)); exit(code)
+        }
+        guard let (service, _) = await connect() else { done("connect failed", 4) }
+        let vm = MapViewModel(service: service)
+        await vm.reload()
+        if let err = vm.errorMessage { done("reload error: \(err)", 5) }
+        let geo = vm.geoItems
+        guard let f = geo.first else { done("no geolocated items ⚠️", 0) }
+        var minLat = f.latitude, maxLat = f.latitude, minLon = f.longitude, maxLon = f.longitude
+        for g in geo {
+            minLat = min(minLat, g.latitude); maxLat = max(maxLat, g.latitude)
+            minLon = min(minLon, g.longitude); maxLon = max(maxLon, g.longitude)
+        }
+        func buckets(step: Double) -> Int {
+            var s = Set<String>()
+            for g in geo { s.insert("\(Int((g.latitude / step).rounded(.down)))_\(Int((g.longitude / step).rounded(.down)))") }
+            return s.count
+        }
+        let coarse = buckets(step: 2.0), fine = buckets(step: 0.05)
+        let total = (try? await service.itemCount()) ?? -1
+        done("MAP: geoItems=\(geo.count)/\(total) (\(total > 0 ? geo.count * 100 / total : 0)% geolocated); "
+            + "bounds lat[\(String(format: "%.3f", minLat))…\(String(format: "%.3f", maxLat))] "
+            + "lon[\(String(format: "%.3f", minLon))…\(String(format: "%.3f", maxLon))]; "
+            + "clusters coarse(2°)=\(coarse) fine(0.05°)=\(fine) "
+            + (geo.count > 0 && fine >= coarse ? "✅" : "⚠️"), 0)
+    }
+
+    /// Verifies the TRIAGE logic (T1) end-to-end against real items, WITHOUT any
+    /// server delete: keep/markDelete/undo counts + the local `applyCommitted`
+    /// cursor restore (applyCommitted only mutates local state — never deletes).
+    @MainActor
+    static func runTriage(outPath: String) async {
+        func done(_ msg: String, _ code: Int32) -> Never {
+            try? msg.data(using: .utf8)?.write(to: URL(fileURLWithPath: outPath)); exit(code)
+        }
+        guard let (service, _) = await connect() else { done("connect failed", 4) }
+        let vm = TriageViewModel(service: service)
+        await vm.loadInitial()
+        if let err = vm.errorMessage { done("load error: \(err)", 5) }
+        let n0 = vm.items.count
+        guard n0 >= 4 else { done("not enough items (\(n0))", 5) }
+        let ids = Array(vm.items.prefix(6).map(\.id))
+
+        vm.keep(); vm.keep(); vm.markDelete()          // ids[0],ids[1] kept; ids[2] pending
+        let c1 = vm.decidedCount == 3 && vm.keptCount == 2 && vm.deletePendingCount == 1 && vm.current?.id == ids[3]
+        vm.undo()                                       // un-mark ids[2] → current back to ids[2]
+        let c2 = vm.decidedCount == 2 && vm.deletePendingCount == 0 && vm.current?.id == ids[2]
+        vm.markDelete()                                 // re-mark ids[2] pending
+        let pendingIDs = Set(vm.pendingDeleteItems.map(\.id))
+        let c3 = pendingIDs == [ids[2]]
+        vm.applyCommitted(deletedIDs: pendingIDs)       // LOCAL only, no server delete
+        let c4 = vm.items.count == n0 - 1 && vm.deletePendingCount == 0 && vm.current?.id == ids[3]
+        let ok = c1 && c2 && c3 && c4
+        done("TRIAGE: loaded=\(n0); keep,keep,del→[decided3/kept2/pending1/cur≡ids3]=\(c1); "
+            + "undo→[decided2/pending0/cur≡ids2]=\(c2); reDel→pending≡{ids2}=\(c3); "
+            + "applyCommitted→[items \(n0)→\(vm.items.count)/pending0/cur≡ids3]=\(c4) "
+            + (ok ? "✅ ALL PASS" : "⚠️ FAIL"), 0)
+    }
+
+    /// Verifies the EXPORT presets (T5): downloads a real photo original, runs
+    /// ImageExporter with a few option sets, and checks dimensions / format /
+    /// GPS-strip / pass-through. All local (ImageIO) — no writes to the NAS.
+    @MainActor
+    static func runExport(outPath: String) async {
+        func done(_ msg: String, _ code: Int32) -> Never {
+            try? msg.data(using: .utf8)?.write(to: URL(fileURLWithPath: outPath)); exit(code)
+        }
+        func dims(_ d: Data) -> (Int, Int)? {
+            guard let s = CGImageSourceCreateWithData(d as CFData, nil),
+                  let p = CGImageSourceCopyPropertiesAtIndex(s, 0, nil) as? [CFString: Any],
+                  let w = p[kCGImagePropertyPixelWidth] as? Int, let h = p[kCGImagePropertyPixelHeight] as? Int else { return nil }
+            return (w, h)
+        }
+        func typeUTI(_ d: Data) -> String { CGImageSourceCreateWithData(d as CFData, nil).flatMap { CGImageSourceGetType($0) as String? } ?? "?" }
+        func hasGPS(_ d: Data) -> Bool {
+            guard let s = CGImageSourceCreateWithData(d as CFData, nil),
+                  let p = CGImageSourceCopyPropertiesAtIndex(s, 0, nil) as? [CFString: Any] else { return false }
+            return p[kCGImagePropertyGPSDictionary] != nil
+        }
+        guard let (service, _) = await connect() else { done("connect failed", 4) }
+        // Prefer a photo that actually has GPS (to prove the strip).
+        var photo: FotoItem?
+        for offset in stride(from: 0, to: 800, by: 200) {
+            let items = (try? await service.items(offset: offset, limit: 200, additional: FotoService.fullAdditional)) ?? []
+            photo = items.first { $0.type == .photo && $0.additional?.gps != nil } ?? photo ?? items.first { $0.type == .photo }
+            if photo?.additional?.gps != nil { break }
+            if items.count < 200 { break }
+        }
+        guard let photo, let original = try? await service.originalData(itemIds: [photo.id]) else { done("no photo original", 5) }
+        let (ow, oh) = dims(original) ?? (0, 0)
+        let origGPS = hasGPS(original)
+
+        // 1) resize 1024 + JPEG + strip metadata.
+        let o1 = ExportOptions(format: .jpeg, maxDimension: 1024, jpegQuality: 0.8, stripMetadata: true)
+        let r1 = ImageExporter.export(originalData: original, filename: photo.filename, isPhoto: true, options: o1)
+        let d1 = r1.flatMap { dims($0.data) } ?? (0, 0)
+        let long1 = max(d1.0, d1.1)
+        let c1 = long1 <= 1024 && long1 > 0 && (r1.map { typeUTI($0.data) } == "public.jpeg") && (r1.map { !hasGPS($0.data) } ?? false)
+
+        // 2) PNG at original size.
+        let o2 = ExportOptions(format: .png, maxDimension: nil, stripMetadata: false)
+        let r2 = ImageExporter.export(originalData: original, filename: photo.filename, isPhoto: true, options: o2)
+        let d2 = r2.flatMap { dims($0.data) } ?? (0, 0)
+        let c2 = (r2.map { typeUTI($0.data) } == "public.png") && d2 == (ow, oh)
+
+        // 3) pass-through (original / original / no strip) → unchanged bytes.
+        let r3 = ImageExporter.export(originalData: original, filename: photo.filename, isPhoto: true, options: ExportOptions())
+        let c3 = (r3?.data.count == original.count) && (r3?.filename == photo.filename)
+
+        let ok = c1 && c2 && c3
+        done("EXPORT: original \(ow)×\(oh) gps=\(origGPS) \(original.count)B; "
+            + "1)jpeg1024strip → \(d1.0)×\(d1.1) \(r1.map { typeUTI($0.data) } ?? "?") gps=\(r1.map { hasGPS($0.data) } ?? true) \(r1?.data.count ?? 0)B [\(c1 ? "✅" : "⚠️")]; "
+            + "2)png orig → \(d2.0)×\(d2.1) \(r2.map { typeUTI($0.data) } ?? "?") [\(c2 ? "✅" : "⚠️")]; "
+            + "3)passthrough → \(r3?.data.count ?? 0)B name=\(r3?.filename ?? "?") [\(c3 ? "✅" : "⚠️")] "
+            + (ok ? "ALL PASS ✅" : "FAIL ⚠️"), 0)
     }
 
     /// Renders the Settings window (System-Settings styling) to a PNG so the

@@ -47,6 +47,12 @@ final class SmokeAppDelegate: NSObject, NSApplicationDelegate {
             Task { @MainActor in await SmokeSnapshot.runStack(outPath: out) }
         } else if let out = env["PHOTOS_SMOKE_SETTINGS"] {
             Task { @MainActor in await SmokeSnapshot.runSettings(outPath: out) }
+        } else if let out = env["PHOTOS_SMOKE_MAP"] {
+            Task { @MainActor in await SmokeSnapshot.runMap(outPath: out) }
+        } else if let out = env["PHOTOS_SMOKE_TRIAGE"] {
+            Task { @MainActor in await SmokeSnapshot.runTriage(outPath: out) }
+        } else if let out = env["PHOTOS_SMOKE_EXPORT"] {
+            Task { @MainActor in await SmokeSnapshot.runExport(outPath: out) }
         }
     }
 }

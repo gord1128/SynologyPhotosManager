@@ -34,6 +34,13 @@ struct PhotoInspectorView: View {
                         .disabled(model.isDownloading)
 
                         Button {
+                            model.requestExport([item])
+                        } label: {
+                            Image(systemName: "square.and.arrow.up")
+                        }
+                        .help("내보내기… (크기·형식·메타데이터)")
+
+                        Button {
                             Task { await model.toggleFavorite([item]) }
                         } label: {
                             Image(systemName: model.isFavorite(item) ? "heart.fill" : "heart")

@@ -36,5 +36,16 @@ let package = Package(
             dependencies: [.product(name: "SynoKit", package: "SynoKit")],
             swiftSettings: [.swiftLanguageMode(.v5)]
         ),
+        // Dev-only, READ-ONLY: probes how to collect photo coordinates for the
+        // map view (T3) — GPS fill-rate via item paging vs. the geocoding facet
+        // as a cheap place index. No writes.
+        .executableTarget(
+            name: "MapSpike",
+            dependencies: [
+                .product(name: "SynoKit", package: "SynoKit"),
+                .product(name: "FotoKit", package: "FotoKit"),
+            ],
+            swiftSettings: [.swiftLanguageMode(.v5)]
+        ),
     ]
 )

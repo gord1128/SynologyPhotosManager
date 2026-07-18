@@ -17,6 +17,10 @@ struct AppCommands: Commands {
                 .keyboardShortcut("s", modifiers: .command)
                 .disabled(!model.canOperateOnItems)
 
+            Button("내보내기…") { model.sendMenuCommand(.export) }
+                .keyboardShortcut("e", modifiers: [.command, .shift])
+                .disabled(!model.canOperateOnItems)
+
             Divider()
 
             Button("삭제") { model.sendMenuCommand(.delete) }
