@@ -102,7 +102,8 @@ final class AppModel {
 
     /// Logs into the selected NAS and readies `fotoService`. Read-only browsing
     /// wiring for Phase 1; the grid/timeline views consume `fotoService`.
-    func connect(password: String, otpCode: String? = nil) async {
+    func connect(password: String, otpCode: String? = nil,
+                 retriesOnTransient: Int = 0, retryDelay: Duration = .seconds(1)) async {
         guard let connection = selectedConnection else { return }
         connectionState = .connecting
         let service = FotoService(connection: connection, space: space)
@@ -120,8 +121,54 @@ final class AppModel {
             awaitCertificateDecision(host: host, port: port, fingerprint: new,
                                      certData: certData, previous: old, password: password, otpCode: otpCode)
         } catch {
+            // A cold-launch race can make the very first request fail with a
+            // transient "offline"/timeout even though the NAS is reachable
+            // (the network stack isn't ready the instant the app fires). Right
+            // after a reboot this warmup — Wi-Fi/DHCP/DNS, VPN coming up — can
+            // take 10–30s, so retry with exponential backoff (capped) rather
+            // than a flat delay that gives up in a few seconds. Keep the
+            // "연결 중…" state throughout so the UI doesn't flash a failure.
+            if retriesOnTransient > 0, Self.isTransientNetworkError(error) {
+                try? await Task.sleep(for: retryDelay)
+                let nextDelay = min(retryDelay * 2, .seconds(8))
+                await connect(password: password, otpCode: otpCode,
+                              retriesOnTransient: retriesOnTransient - 1, retryDelay: nextDelay)
+                return
+            }
             connectionState = .failed((error as? LocalizedError)?.errorDescription ?? error.localizedDescription)
         }
+    }
+
+    /// Whether an error is a transient connectivity blip worth retrying (offline,
+    /// timeout, dropped/refused connection, DNS) rather than a real failure like
+    /// bad credentials or an untrusted cert. Unwraps `hostUnreachable`'s URLError.
+    private static func isTransientNetworkError(_ error: Error) -> Bool {
+        let urlError: URLError?
+        if case let SynologyAPIError.hostUnreachable(underlying) = error {
+            urlError = underlying as? URLError
+        } else {
+            urlError = error as? URLError
+        }
+        switch urlError?.code {
+        case .notConnectedToInternet, .timedOut, .networkConnectionLost,
+             .cannotConnectToHost, .cannotFindHost, .dnsLookupFailed,
+             .resourceUnavailable:
+            return true
+        default:
+            return false
+        }
+    }
+
+    /// Forces a fresh connection to the selected NAS from any state. Unlike
+    /// `connectSavedIfPossible`, this works from `.failed` (its guard requires
+    /// `.disconnected`), so it's what the failure pane's "다시 연결" must call.
+    func reconnect() async {
+        guard let connection = selectedConnection,
+              let password = CredentialStore.password(for: connection) else {
+            connectionState = .failed("저장된 비밀번호가 없습니다. 연결을 다시 추가하세요.")
+            return
+        }
+        await connect(password: password, retriesOnTransient: 2)
     }
 
     private func awaitCertificateDecision(host: String, port: Int, fingerprint: String, certData: Data,
@@ -549,7 +596,8 @@ final class AppModel {
         guard fotoService == nil, connectionState == .disconnected,
               let connection = selectedConnection,
               let password = CredentialStore.password(for: connection) else { return }
-        await connect(password: password)
+        // 6 retries with backoff ≈ a 30s window, enough for post-reboot warmup.
+        await connect(password: password, retriesOnTransient: 6)
     }
 
     // MARK: - Settings (connection management, defaults)

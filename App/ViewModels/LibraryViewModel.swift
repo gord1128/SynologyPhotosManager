@@ -193,6 +193,7 @@ final class LibraryViewModel {
     func loadMore() async {
         guard !isLoading, !reachedEnd else { return }
         isLoading = true
+        errorMessage = nil   // clear any stale failure so a retry starts clean
         defer { isLoading = false }
         do {
             let next: [FotoItem]

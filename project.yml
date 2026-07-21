@@ -40,6 +40,11 @@ targets:
         INFOPLIST_KEY_NSHumanReadableCopyright: ""
         CODE_SIGN_ENTITLEMENTS: App/SynologyPhotosManager.entitlements
         CODE_SIGN_STYLE: Automatic
+        # Pin the Personal Team so EVERY build (Xcode or bare xcodebuild) is
+        # team-signed, not ad-hoc "Sign to Run Locally". A stable code identity
+        # keeps the macOS Local Network permission from desyncing on each rebuild
+        # (the recurring -1009 trap). Never let this fall back to empty/ad-hoc.
+        DEVELOPMENT_TEAM: 8MC7H99NUM
         ENABLE_HARDENED_RUNTIME: YES
         # Language mode 5 for now (matches SynoKit); Swift 6 strict-concurrency
         # migration is a tracked follow-up.

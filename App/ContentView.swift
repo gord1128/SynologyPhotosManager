@@ -351,7 +351,7 @@ struct ContentView: View {
             } description: {
                 Text(message)
             } actions: {
-                Button("다시 연결") { Task { await model.connectSavedIfPossible() } }
+                Button("다시 연결") { Task { await model.reconnect() } }
                 Button("연결 편집") { showingAdd = true }
             }
         default:
