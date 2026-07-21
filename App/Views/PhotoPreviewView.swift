@@ -1,6 +1,7 @@
 import SwiftUI
 import AppKit
 import AVKit
+import ImageIO
 import FotoKit
 
 /// Full-window Quick Look preview for the selected item. Photos show the large
@@ -156,10 +157,18 @@ struct PhotoPreviewView: View {
               let service = model.fotoService else { return }
         isLoadingOriginal = true
         defer { isLoadingOriginal = false }
-        if let data = try? await service.originalData(itemIds: [item.id]),
-           let full = NSImage(data: data) {
-            originalImage = full
-        }
+        // Stream the original to a temp file and decode it with ImageIO, so the
+        // encoded original never sits in memory as a Data buffer (large photos).
+        let tmp = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        guard (try? await service.downloadOriginal(itemIds: [item.id], to: tmp)) != nil,
+              let src = CGImageSourceCreateWithURL(tmp as CFURL, nil),
+              let cg = CGImageSourceCreateThumbnailAtIndex(src, 0, [
+                  kCGImageSourceCreateThumbnailFromImageAlways: true,
+                  kCGImageSourceCreateThumbnailWithTransform: true,
+                  kCGImageSourceThumbnailMaxPixelSize: 100_000,   // huge cap ⇒ full-size
+              ] as CFDictionary) else { return }
+        originalImage = NSImage(cgImage: cg, size: NSSize(width: cg.width, height: cg.height))
     }
 
     private func prepareVideo() async {

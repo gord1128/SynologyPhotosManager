@@ -27,6 +27,10 @@ targets:
         product: SynoKit
       - package: FotoKit
         product: FotoKit
+      # Explicitly link AVKit so SwiftUI VideoPlayer's _AVKit_SwiftUI metadata
+      # resolves at runtime. Without it, VideoPlayer crashes on launch in
+      # non-debug (Release/archive) builds — a known AVKit linking bug.
+      - sdk: AVKit.framework
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.hyeonm9.SynologyPhotosManager

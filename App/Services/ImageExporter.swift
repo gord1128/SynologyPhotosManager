@@ -55,7 +55,21 @@ enum ImageExporter {
     static func export(originalData: Data, filename: String, isPhoto: Bool, options: ExportOptions) -> (data: Data, filename: String)? {
         if isPassThrough(isPhoto: isPhoto, options) { return (originalData, filename) }
         guard let src = CGImageSourceCreateWithData(originalData as CFData, nil) else { return nil }
+        return reencode(source: src, filename: filename, options: options)
+    }
 
+    /// Same as `export(originalData:)` but reads the original from a file on disk,
+    /// so the encoded bytes never sit fully in memory (ImageIO reads the file
+    /// lazily). Caller guarantees non-pass-through. For large RAW/photos.
+    static func export(originalFileURL: URL, filename: String, isPhoto: Bool, options: ExportOptions) -> (data: Data, filename: String)? {
+        if isPassThrough(isPhoto: isPhoto, options) {
+            return (try? Data(contentsOf: originalFileURL)).map { ($0, filename) }
+        }
+        guard let src = CGImageSourceCreateWithURL(originalFileURL as CFURL, nil) else { return nil }
+        return reencode(source: src, filename: filename, options: options)
+    }
+
+    private static func reencode(source src: CGImageSource, filename: String, options: ExportOptions) -> (data: Data, filename: String)? {
         // Thumbnail-with-transform bakes in EXIF orientation and (with a cap)
         // resizes; a huge cap ⇒ full-size. A fresh encode carries no metadata.
         let maxPixel = options.maxDimension ?? 100_000
