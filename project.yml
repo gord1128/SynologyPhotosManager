@@ -54,6 +54,14 @@ targets:
         # migration is a tracked follow-up.
         SWIFT_VERSION: "5.0"
         MACOSX_DEPLOYMENT_TARGET: "14.0"
+      configs:
+        Release:
+          # Don't inject the debug `get-task-allow` entitlement into shipping
+          # builds. The app holds decrypted NAS credentials in memory, and with
+          # get-task-allow any same-user process could attach and read them;
+          # dropping it (plus the hardened runtime) blocks that. Debug keeps the
+          # default injection so the debugger still attaches.
+          CODE_SIGN_INJECT_BASE_ENTITLEMENTS: NO
 
 schemes:
   SynologyPhotosManager:
