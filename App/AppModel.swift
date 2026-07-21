@@ -551,8 +551,12 @@ final class AppModel {
                     // Stream originals straight to disk (no buffering — safe for video).
                     try await service.downloadOriginal(itemIds: [item.id], to: target)
                 } else {
-                    let original = try await service.originalData(itemIds: [item.id])
-                    guard let result = ImageExporter.export(originalData: original, filename: item.filename, isPhoto: isPhoto, options: options) else {
+                    // Stream the original to a temp file, then re-encode from disk
+                    // so a large RAW/photo never sits fully in memory.
+                    let tmp = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+                    defer { try? FileManager.default.removeItem(at: tmp) }
+                    try await service.downloadOriginal(itemIds: [item.id], to: tmp)
+                    guard let result = ImageExporter.export(originalFileURL: tmp, filename: item.filename, isPhoto: isPhoto, options: options) else {
                         failures.append(item.filename); continue
                     }
                     try result.data.write(to: target)
