@@ -33,7 +33,13 @@ struct PhotoGridView: View {
                 ProgressView("불러오는 중…")
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if let error = library.errorMessage, library.items.isEmpty {
-                ContentUnavailableView("불러오기 실패", systemImage: "exclamationmark.triangle", description: Text(error))
+                ContentUnavailableView {
+                    Label("불러오기 실패", systemImage: "exclamationmark.triangle")
+                } description: {
+                    Text(error)
+                } actions: {
+                    Button("다시 시도") { Task { await library.loadInitial() } }
+                }
             } else if library.items.isEmpty {
                 ContentUnavailableView("사진 없음", systemImage: "photo.on.rectangle")
             } else {
