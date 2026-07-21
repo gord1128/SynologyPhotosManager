@@ -514,6 +514,15 @@ public final class FotoService: @unchecked Sendable {
         try await client.rawData(for: request)
     }
 
+    /// One Range request for a video's original bytes, with automatic
+    /// session-expiry recovery — the `_sid` is rebuilt on renewal so playback
+    /// survives a session timeout mid-stream. Backs `VideoStreamLoader`.
+    public func videoRange(itemId: Int, rangeHeader: String) async throws -> (Data, HTTPURLResponse) {
+        try await client.rangeRequest(api: "SYNO.Foto.Download", method: "download",
+            queryItems: [URLQueryItem(name: "unit_id", value: "[\(itemId)]")],
+            rangeHeader: rangeHeader)
+    }
+
     /// Streams the original(s) straight to `destination` (no memory buffering).
     /// One id → the file; many → a zip.
     public func downloadOriginal(itemIds: [Int], to destination: URL) async throws {

@@ -13,8 +13,7 @@ import FotoKit
 final class VideoStreamLoader: NSObject, AVAssetResourceLoaderDelegate {
     static let scheme = "synostream"
 
-    private let realURL: URL
-    private let fetch: (URLRequest) async throws -> (Data, HTTPURLResponse)
+    private let fetch: (_ rangeHeader: String) async throws -> (Data, HTTPURLResponse)
     private let queue = DispatchQueue(label: "com.synologyphotos.videostream")
     private var tasks: [ObjectIdentifier: Task<Void, Never>] = [:]
 
@@ -38,8 +37,7 @@ final class VideoStreamLoader: NSObject, AVAssetResourceLoaderDelegate {
         set { stateLock.withLock { _contentUTI = newValue } }
     }
 
-    private init(realURL: URL, fetch: @escaping (URLRequest) async throws -> (Data, HTTPURLResponse)) {
-        self.realURL = realURL
+    private init(fetch: @escaping (_ rangeHeader: String) async throws -> (Data, HTTPURLResponse)) {
         self.fetch = fetch
     }
 
@@ -47,13 +45,15 @@ final class VideoStreamLoader: NSObject, AVAssetResourceLoaderDelegate {
     /// MUST be retained by the caller for the lifetime of the asset — the
     /// resource loader holds its delegate weakly.
     static func makeAsset(itemId: Int, service: FotoService) -> (asset: AVURLAsset, loader: VideoStreamLoader)? {
-        guard let realURL = service.videoStreamURL(itemId: itemId),
-              var comps = URLComponents(url: realURL, resolvingAgainstBaseURL: false) else { return nil }
-        comps.scheme = scheme  // force delegation to us
-        guard let customURL = comps.url else { return nil }
+        // A synthetic custom-scheme URL: all content is fetched through the
+        // delegate below, so the asset URL only needs to be unique and carry our
+        // scheme — and, unlike before, it no longer bakes in a session id.
+        guard let customURL = URL(string: "\(scheme)://item/\(itemId)") else { return nil }
 
-        let loader = VideoStreamLoader(realURL: realURL) { [service] request in
-            try await service.rawData(for: request)
+        let loader = VideoStreamLoader { [service] rangeHeader in
+            // Goes through videoRange → session-expiry relogin + fresh _sid, so
+            // playback survives a session timeout mid-stream.
+            try await service.videoRange(itemId: itemId, rangeHeader: rangeHeader)
         }
         let asset = AVURLAsset(url: customURL)
         asset.resourceLoader.setDelegate(loader, queue: loader.queue)
@@ -107,9 +107,7 @@ final class VideoStreamLoader: NSObject, AVAssetResourceLoaderDelegate {
     }
 
     private func fetchContentInfo() async throws {
-        var req = URLRequest(url: realURL)
-        req.setValue("bytes=0-1", forHTTPHeaderField: "Range")
-        let (_, http) = try await fetch(req)
+        let (_, http) = try await fetch("bytes=0-1")
         if let total = Self.totalLength(from: http) { totalLength = total }
         if let mime = http.value(forHTTPHeaderField: "Content-Type")?
             .split(separator: ";").first.map({ String($0).trimmingCharacters(in: .whitespaces) }),
@@ -129,9 +127,8 @@ final class VideoStreamLoader: NSObject, AVAssetResourceLoaderDelegate {
         while offset <= end {
             if Task.isCancelled { return }
             let upper = min(offset + chunk - 1, end)
-            var req = URLRequest(url: realURL)
-            req.setValue("bytes=\(offset)-\(upper == Int64.max ? "" : String(upper))", forHTTPHeaderField: "Range")
-            let (data, http) = try await fetch(req)
+            let rangeHeader = "bytes=\(offset)-\(upper == Int64.max ? "" : String(upper))"
+            let (data, http) = try await fetch(rangeHeader)
             if data.isEmpty { break }
             dataRequest.respond(with: data)
             offset += Int64(data.count)
