@@ -14,7 +14,8 @@ actor DiskImageCache {
 
     private let directory: URL
     private let byteBudget: Int
-    private var didSweep = false
+    private var bytesSinceSweep = 0
+    private var sweeping = false
 
     init(byteBudget: Int = 500 * 1024 * 1024) {
         self.byteBudget = byteBudget
@@ -40,16 +41,28 @@ actor DiskImageCache {
 
     func store(_ data: Data, for key: String) {
         try? data.write(to: fileURL(for: key), options: .atomic)
-        if !didSweep {
-            didSweep = true
-            Task.detached(priority: .background) { await self.sweepIfNeeded() }
+        // Re-sweep whenever writes accumulate past ~1/8 of the budget — not just
+        // once per session. A long browsing session writes thousands of
+        // thumbnails and would otherwise blow far past the budget after the
+        // single initial sweep (which ran while the cache was still small).
+        bytesSinceSweep += data.count
+        if !sweeping, bytesSinceSweep >= max(byteBudget / 8, 32 * 1024 * 1024) {
+            sweeping = true
+            bytesSinceSweep = 0
+            Task.detached(priority: .background) {
+                self.sweepIfNeeded()
+                await self.finishSweep()
+            }
         }
     }
 
+    private func finishSweep() { sweeping = false }
+
     /// Deletes least-recently-used files until the total is back under budget.
-    /// Runs once per session (best-effort) — new writes during a session are a
-    /// small fraction of the budget.
-    private func sweepIfNeeded() {
+    /// `nonisolated` so the directory scan/deletes run off the actor and don't
+    /// block concurrent thumbnail reads/writes (it only touches immutable
+    /// `directory`/`byteBudget` and the filesystem).
+    nonisolated private func sweepIfNeeded() {
         let keys: [URLResourceKey] = [.fileSizeKey, .contentModificationDateKey]
         guard let urls = try? FileManager.default.contentsOfDirectory(
             at: directory, includingPropertiesForKeys: keys) else { return }
