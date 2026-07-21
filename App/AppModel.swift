@@ -1,6 +1,7 @@
 import Foundation
 import Observation
 import AppKit
+import Network
 import SynoKit
 import FotoKit
 
@@ -95,9 +96,40 @@ final class AppModel {
     private var pendingPassword: String?
     private var pendingOTP: String?
 
+    // Connectivity watchdog: when the network path becomes satisfied again
+    // (Wi-Fi returns, wake from sleep, post-boot warmup finishing) we auto-retry
+    // a *failed* connection instead of stranding the user on the failure screen.
+    // This is the proactive complement to connect()'s timed backoff retries.
+    private let pathMonitor = NWPathMonitor()
+    private var pathIsSatisfied = true
+    private var monitoringStarted = false
+
     init() {
         let selectedID = CredentialStore.selectedConnectionID()
         selectedConnection = connections.first { $0.id == selectedID } ?? connections.first
+        startConnectivityMonitoring()
+    }
+
+    /// Starts watching the network path (idempotent). On a transition back to
+    /// "satisfied" while the connection is `.failed`, kicks off a reconnect.
+    func startConnectivityMonitoring() {
+        guard !monitoringStarted else { return }
+        monitoringStarted = true
+        pathMonitor.pathUpdateHandler = { [weak self] path in
+            let satisfied = path.status == .satisfied
+            Task { @MainActor in self?.handlePathUpdate(satisfied: satisfied) }
+        }
+        pathMonitor.start(queue: DispatchQueue(label: "com.hyeonm9.SynologyPhotosManager.path"))
+    }
+
+    private func handlePathUpdate(satisfied: Bool) {
+        defer { pathIsSatisfied = satisfied }
+        // Act only on the not-satisfied → satisfied edge, and only when a
+        // connection actually failed (don't disturb a healthy/in-progress one).
+        guard satisfied, !pathIsSatisfied else { return }
+        if case .failed = connectionState {
+            Task { await reconnect() }
+        }
     }
 
     /// Logs into the selected NAS and readies `fotoService`. Read-only browsing
