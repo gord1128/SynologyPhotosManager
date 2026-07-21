@@ -47,5 +47,16 @@ let package = Package(
             ],
             swiftSettings: [.swiftLanguageMode(.v5)]
         ),
+        // Dev-only, READ-ONLY: verifies CHK-1 — pages the collapsed timeline the
+        // exact way LibraryViewModel does (offset = collected count) and checks
+        // for duplicate/skipped ids against a single big-limit ground-truth fetch.
+        .executableTarget(
+            name: "PaginationCheck",
+            dependencies: [
+                .product(name: "SynoKit", package: "SynoKit"),
+                .product(name: "FotoKit", package: "FotoKit"),
+            ],
+            swiftSettings: [.swiftLanguageMode(.v5)]
+        ),
     ]
 )
