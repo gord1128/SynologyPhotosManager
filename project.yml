@@ -41,7 +41,7 @@ targets:
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         INFOPLIST_KEY_NSLocalNetworkUsageDescription: "같은 네트워크의 Synology NAS를 자동으로 찾기 위해 로컬 네트워크를 사용합니다."
         INFOPLIST_KEY_LSApplicationCategoryType: "public.app-category.photography"
-        INFOPLIST_KEY_NSHumanReadableCopyright: ""
+        INFOPLIST_KEY_NSHumanReadableCopyright: "© 2026 hyeonm9. MIT 라이선스. 제3자 고지는 앱 안 THIRD-PARTY.txt 참조."
         CODE_SIGN_ENTITLEMENTS: App/SynologyPhotosManager.entitlements
         CODE_SIGN_STYLE: Automatic
         # Pin the Personal Team so EVERY build (Xcode or bare xcodebuild) is
@@ -55,6 +55,14 @@ targets:
         SWIFT_VERSION: "5.0"
         MACOSX_DEPLOYMENT_TARGET: "14.0"
       configs:
+        Debug:
+          # `SMOKE` gates the headless screenshot harness (App/SmokeSnapshot.swift
+          # and the env-var hooks that drive it). It's a development tool: it
+          # reads the saved NAS credential, renders a screen, and calls exit().
+          # None of that belongs in a build strangers install, and it's ~900
+          # lines of code and attack surface for zero user-facing value.
+          # DEBUG must be repeated — setting this replaces Xcode's default.
+          SWIFT_ACTIVE_COMPILATION_CONDITIONS: "DEBUG SMOKE"
         Release:
           # Don't inject the debug `get-task-allow` entitlement into shipping
           # builds. The app holds decrypted NAS credentials in memory, and with

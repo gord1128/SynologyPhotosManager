@@ -11,9 +11,10 @@
 	<!-- Read/write files the user explicitly picks (upload sources, download folder). -->
 	<key>com.apple.security.files.user-selected.read-write</key>
 	<true/>
-	<!-- App-scoped security-scoped bookmarks: keep access to the chosen download
-	     folder across launches so the transfer queue can resume (per plan §4). -->
-	<key>com.apple.security.files.bookmarks.app-scope</key>
-	<true/>
+	<!-- NOTE: app-scope bookmarks were declared here for a resumable transfer
+	     queue that never got built — there is no `bookmarkData` call anywhere in
+	     the app — so the entitlement is gone. An unused capability is one more
+	     thing a user reading `codesign -d --entitlements` has to take on trust.
+	     Put it back the day the code actually needs it. -->
 </dict>
 </plist>
