@@ -143,6 +143,7 @@ final class AppModel {
             try await service.connect(username: connection.username, password: password, otpCode: otpCode)
             fotoService = service
             connectionState = .connected
+            SynoLog.app.notice("연결 성공 (재시도 잔여 \(retriesOnTransient, privacy: .public))")
             // Only surface the 개인/공유 toggle when the shared space really works
             // (its API can exist while disabled → err 801). Probe after connect.
             sharedSpaceUsable = await service.sharedSpaceIsUsable()
@@ -161,12 +162,14 @@ final class AppModel {
             // than a flat delay that gives up in a few seconds. Keep the
             // "연결 중…" state throughout so the UI doesn't flash a failure.
             if retriesOnTransient > 0, Self.isTransientNetworkError(error) {
+                SynoLog.app.info("일시적 오류로 재시도 남은=\(retriesOnTransient, privacy: .public) 대기=\(String(describing: retryDelay), privacy: .public)")
                 try? await Task.sleep(for: retryDelay)
                 let nextDelay = min(retryDelay * 2, .seconds(8))
                 await connect(password: password, otpCode: otpCode,
                               retriesOnTransient: retriesOnTransient - 1, retryDelay: nextDelay)
                 return
             }
+            SynoLog.app.error("연결 실패 (재시도 소진) transient=\(Self.isTransientNetworkError(error), privacy: .public) \(String(describing: error), privacy: .private)")
             connectionState = .failed((error as? LocalizedError)?.errorDescription ?? error.localizedDescription)
         }
     }
@@ -278,6 +281,10 @@ final class AppModel {
     private var noticeClearTask: Task<Void, Never>?
 
     func showError(_ message: String) {
+        // Every banner the user sees also lands in the log, so an exported log
+        // reads as the same story they'd tell: "이때 이 오류가 떴어요".
+        // Private: these messages carry filenames and host names.
+        SynoLog.app.error("알림: \(message, privacy: .private)")
         noticeClearTask?.cancel()
         notice = Notice(kind: .error, message: message)
     }

@@ -1,4 +1,5 @@
 import Foundation
+import SynoKit
 
 /// Wraps one array element so its decoding failure becomes `nil` instead of
 /// throwing. The wrapper itself never throws, which is the whole point: the
@@ -24,14 +25,14 @@ extension KeyedDecodingContainer {
     /// fine, and every retry hits the same offset, so the timeline is stuck
     /// there for good.
     ///
-    /// Dropped rows are logged, never swallowed silently: a non-zero count is
+    /// Dropped rows are logged (SynoKit's shared `decoding` category), never swallowed silently: a non-zero count is
     /// how we find out the NAS is sending a shape we don't know about.
     func decodeLenient<T: Decodable>(_ type: T.Type, forKey key: Key) -> [T] {
         let raw = (try? decodeIfPresent([Failable<T>].self, forKey: key)) ?? []
         let values = raw.compactMap(\.value)
         let dropped = raw.count - values.count
         if dropped > 0 {
-            FotoLog.decoding.warning(
+            SynoLog.decoding.warning(
                 "\(String(describing: T.self), privacy: .public): \(dropped, privacy: .public)/\(raw.count, privacy: .public)개가 스키마 불일치로 버려짐")
         }
         return values

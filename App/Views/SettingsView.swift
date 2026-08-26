@@ -39,6 +39,9 @@ private struct GeneralSettings: View {
     @Environment(AppModel.self) private var model
     @State private var cacheSize: Int?
     @State private var clearing = false
+    /// Result of the last log export, shown inline — a save panel that closes
+    /// with no feedback leaves the user unsure whether anything happened.
+    @State private var exportNote: (text: String, isError: Bool)?
     @State private var user: FotoUserInfo?
     @State private var index: FotoIndexStatus?
 
@@ -105,6 +108,39 @@ private struct GeneralSettings: View {
                 Text("썸네일 캐시")
             } footer: {
                 Text("원본은 NAS에 그대로 있습니다. 썸네일은 다시 필요할 때 자동으로 내려받습니다.")
+            }
+
+            Section {
+                LabeledContent {
+                    Text(Diagnostics.versionLine)
+                        .foregroundStyle(.secondary).monospacedDigit().textSelection(.enabled)
+                } label: { rowLabel("버전", "app.badge", .purple) }
+
+                Button {
+                    do {
+                        if try Diagnostics.exportLog() {
+                            exportNote = ("로그를 저장했습니다.", false)
+                        }
+                    } catch {
+                        exportNote = ((error as? LocalizedError)?.errorDescription
+                                      ?? error.localizedDescription, true)
+                    }
+                } label: { rowLabel("진단 로그 내보내기", "doc.text.magnifyingglass", .brown) }
+
+                Button {
+                    Diagnostics.openIssueReport()
+                } label: { rowLabel("문제 보고", "exclamationmark.bubble.fill", .pink) }
+
+                if let exportNote {
+                    Label(exportNote.text, systemImage: exportNote.isError
+                          ? "exclamationmark.triangle" : "checkmark.circle")
+                        .font(.caption)
+                        .foregroundStyle(exportNote.isError ? .red : .secondary)
+                }
+            } header: {
+                Text("진단")
+            } footer: {
+                Text("로그는 이 앱이 남긴 기록만 담으며, 저장하기 전에는 기기 밖으로 나가지 않습니다. NAS 주소·사용자 이름 같은 개인 정보는 가려집니다.")
             }
         }
         .formStyle(.grouped)
