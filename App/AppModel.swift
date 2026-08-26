@@ -528,13 +528,15 @@ final class AppModel {
         var failures: [String] = []
         for url in urls {
             defer { uploadDone += 1 }
-            guard let data = try? Data(contentsOf: url) else {
-                failures.append(url.lastPathComponent); continue
-            }
             do {
-                try await service.uploadItem(filename: url.lastPathComponent, data: data)
+                // The file is streamed from disk inside FotoKit. Reading it here
+                // (`Data(contentsOf:)`) held the whole thing in memory AND —
+                // since AppModel is @MainActor — blocked the main thread for the
+                // length of the read: the window froze while a video loaded.
+                try await service.uploadItem(fileURL: url)
                 succeeded += 1
             } catch {
+                SynoLog.app.error("업로드 실패 \(url.lastPathComponent, privacy: .private): \(String(describing: error), privacy: .private)")
                 failures.append(url.lastPathComponent)
             }
         }
@@ -603,10 +605,17 @@ final class AppModel {
                     let tmp = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
                     defer { try? FileManager.default.removeItem(at: tmp) }
                     try await service.downloadOriginal(itemIds: [item.id], to: tmp)
-                    guard let result = ImageExporter.export(originalFileURL: tmp, filename: item.filename, isPhoto: isPhoto, options: options) else {
-                        failures.append(item.filename); continue
-                    }
-                    try result.data.write(to: target)
+                    // Re-encoding is ImageIO work measured in hundreds of ms per
+                    // photo. On the main actor (which is where this model lives)
+                    // a 200-photo export freezes the app for the duration —
+                    // including the progress it's trying to show.
+                    let filename = item.filename
+                    let wrote = await Task.detached(priority: .userInitiated) { () -> Bool in
+                        guard let result = ImageExporter.export(originalFileURL: tmp, filename: filename,
+                                                                isPhoto: isPhoto, options: options) else { return false }
+                        return (try? result.data.write(to: target)) != nil
+                    }.value
+                    guard wrote else { failures.append(item.filename); continue }
                 }
                 ok += 1
             } catch {

@@ -534,48 +534,45 @@ public final class FotoService: @unchecked Sendable {
 
     // MARK: - Upload / Delete (verified formats from Phase-0)
 
-    /// Uploads a file to the personal-space timeline. Returns the new item id.
+    /// Uploads a file to the timeline, streaming it from disk. Returns the new
+    /// item id.
+    ///
     /// Format (from the captured web request): POST to
     /// entry.cgi/SYNO.Foto.Upload.Item, api/method/version in query, and
     /// **JSON-encoded** multipart form fields (strings quoted, folder an array).
+    ///
+    /// Takes a URL, never `Data`. The old signature read the whole file into
+    /// memory and then copied it into the multipart body — around three copies
+    /// of a 2 GB video before a byte left the machine. Here the body is written
+    /// to a temp file in 8 MB chunks and URLSession streams it, so resident
+    /// memory stays flat regardless of file size.
     @discardableResult
-    public func uploadItem(filename: String, data: Data, mtime: Date = Date()) async throws -> Int {
+    public func uploadItem(fileURL: URL, mtime: Date? = nil) async throws -> Int {
+        let filename = fileURL.lastPathComponent
         let uploadAPI = space == .personal ? "SYNO.Foto.Upload.Item" : "SYNO.FotoTeam.Upload.Item"
         let version = client.endpoint(for: uploadAPI)?.maxVersion ?? 8
-        let mtimeValue = String(Int(mtime.timeIntervalSince1970))
+        let attributes = try? FileManager.default.attributesOfItem(atPath: fileURL.path)
+        // Prefer the file's own modification date: uploading a 2019 photo should
+        // land it in 2019, not today.
+        let modified = mtime ?? (attributes?[.modificationDate] as? Date) ?? Date()
         let nameJSON = jsonString(filename)
+        let boundary = "----FotoKit\(UUID().uuidString)"
 
-        let respData = try await client.requestMultipart(
+        let envelopeURL = try Self.writeMultipartEnvelope(
+            fileURL: fileURL, boundary: boundary, uploadAPI: uploadAPI,
+            version: version, nameJSON: nameJSON, mtime: modified)
+        defer { try? FileManager.default.removeItem(at: envelopeURL) }
+
+        let respData = try await client.requestMultipartFile(
             api: uploadAPI,
             extraQuery: [
                 URLQueryItem(name: "api", value: uploadAPI),
                 URLQueryItem(name: "method", value: "upload"),
                 URLQueryItem(name: "version", value: String(version)),
             ],
-            pathSuffix: uploadAPI
-        ) { _, _ in
-            let boundary = "----FotoKit\(UUID().uuidString)"
-            var body = Data()
-            func field(_ name: String, _ value: String) {
-                body.append("--\(boundary)\r\n".data(using: .utf8)!)
-                body.append("Content-Disposition: form-data; name=\"\(name)\"\r\n\r\n".data(using: .utf8)!)
-                body.append("\(value)\r\n".data(using: .utf8)!)
-            }
-            field("api", uploadAPI)
-            field("method", "upload")
-            field("version", String(version))
-            field("uploadDestination", "\"timeline\"")
-            field("duplicate", "\"ignore\"")
-            field("name", nameJSON)
-            field("mtime", mtimeValue)
-            field("folder", "[\"PhotoLibrary\"]")
-            body.append("--\(boundary)\r\n".data(using: .utf8)!)
-            body.append("Content-Disposition: form-data; name=\"file\"; filename=\(nameJSON)\r\n".data(using: .utf8)!)
-            body.append("Content-Type: application/octet-stream\r\n\r\n".data(using: .utf8)!)
-            body.append(data)
-            body.append("\r\n--\(boundary)--\r\n".data(using: .utf8)!)
-            return ("multipart/form-data; boundary=\(boundary)", body)
-        }
+            pathSuffix: uploadAPI,
+            contentType: "multipart/form-data; boundary=\(boundary)",
+            bodyFileURL: envelopeURL)
 
         let envelope: DSMEnvelope<FotoUploadData>
         do { envelope = try decoder.decode(DSMEnvelope<FotoUploadData>.self, from: respData) }
@@ -585,6 +582,50 @@ public final class FotoService: @unchecked Sendable {
         }
         return payload.id
     }
+
+    /// Assembles `prologue + file bytes + epilogue` into a temp file and returns
+    /// its URL. The file is copied in fixed-size chunks, so the peak resident
+    /// memory of an upload is one chunk — not the size of the video.
+    private static func writeMultipartEnvelope(
+        fileURL: URL, boundary: String, uploadAPI: String,
+        version: Int, nameJSON: String, mtime: Date
+    ) throws -> URL {
+        var head = Data()
+        func field(_ name: String, _ value: String) {
+            head.append(Data("--\(boundary)\r\nContent-Disposition: form-data; name=\"\(name)\"\r\n\r\n\(value)\r\n".utf8))
+        }
+        field("api", uploadAPI)
+        field("method", "upload")
+        field("version", String(version))
+        field("uploadDestination", "\"timeline\"")
+        field("duplicate", "\"ignore\"")
+        field("name", nameJSON)
+        field("mtime", String(Int(mtime.timeIntervalSince1970)))
+        field("folder", "[\"PhotoLibrary\"]")
+        head.append(Data("--\(boundary)\r\nContent-Disposition: form-data; name=\"file\"; filename=\(nameJSON)\r\nContent-Type: application/octet-stream\r\n\r\n".utf8))
+        let tail = Data("\r\n--\(boundary)--\r\n".utf8)
+
+        let envelopeURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("upload-\(UUID().uuidString)")
+        guard FileManager.default.createFile(atPath: envelopeURL.path, contents: nil) else {
+            throw FotoError.uploadStagingFailed
+        }
+        let output = try FileHandle(forWritingTo: envelopeURL)
+        defer { try? output.close() }
+        let input = try FileHandle(forReadingFrom: fileURL)
+        defer { try? input.close() }
+
+        try output.write(contentsOf: head)
+        while let chunk = try input.read(upToCount: chunkSize), !chunk.isEmpty {
+            try output.write(contentsOf: chunk)
+        }
+        try output.write(contentsOf: tail)
+        return envelopeURL
+    }
+
+    /// 8 MB: big enough that the copy isn't syscall-bound, small enough that a
+    /// dozen queued uploads can't add up to anything that matters.
+    private static let chunkSize = 8 * 1024 * 1024
 
     /// Permanently deletes items. ⚠️ Synology Photos has NO app-level trash
     /// (verified: no RecycleBin API) — recovery depends solely on the NAS

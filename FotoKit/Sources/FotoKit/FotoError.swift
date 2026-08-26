@@ -10,6 +10,9 @@ public enum FotoError: Error, LocalizedError {
     case methodNotFound          // 103
     case server(code: Int)
     case notConfigured           // feature awaiting API params (e.g. sharing)
+    /// Couldn't stage the upload body in the temp directory (disk full, or an
+    /// unwritable container). Raised before anything is sent.
+    case uploadStagingFailed
 
     public static func from(_ code: Int) -> Error {
         // Session/auth codes stay as SynoKit's typed errors so re-auth can kick in.
@@ -31,6 +34,7 @@ public enum FotoError: Error, LocalizedError {
         case .methodNotFound: return "지원하지 않는 메서드입니다."
         case .server(let code): return "Foto 서버 오류 (코드: \(code))."
         case .notConfigured: return "공유 기능은 아직 설정 중입니다 (웹 요청 캡처 후 활성화)."
+        case .uploadStagingFailed: return "업로드를 준비할 임시 공간이 없습니다. 디스크 여유 공간을 확인해 주세요."
         }
     }
 }

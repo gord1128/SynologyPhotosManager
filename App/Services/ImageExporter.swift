@@ -7,7 +7,7 @@ import UniformTypeIdentifiers
 /// and strip metadata/GPS — all LOCAL (ImageIO), never touching the server. The
 /// drag-out/download paths still ship the untouched original; this is the opt-in
 /// "processed" export for sharing (smaller, or privacy-stripped).
-enum ExportFormat: String, CaseIterable, Identifiable {
+enum ExportFormat: String, CaseIterable, Identifiable, Sendable {
     case original = "원본 형식"
     case jpeg = "JPEG"
     case png = "PNG"
@@ -20,7 +20,7 @@ enum ExportFormat: String, CaseIterable, Identifiable {
     }
 }
 
-struct ExportOptions: Equatable {
+struct ExportOptions: Equatable, Sendable {
     var format: ExportFormat = .original
     /// Longest-edge cap in px; nil = keep original size.
     var maxDimension: Int? = nil

@@ -208,5 +208,85 @@ do {
     checks.expect(false, "similar 관대 디코딩이 throw한다: \(error)")
 }
 
+
+// MARK: - Upload envelope (스트리밍 전환: 바이트가 그대로인가)
+
+checks.section("Upload multipart envelope")
+
+do {
+    // 업로드 API까지 discovery에 포함시킨 핸들러
+    let uploadInfo = #"""
+    {"success":true,"data":{
+     "SYNO.API.Auth":{"path":"entry.cgi","minVersion":1,"maxVersion":7},
+     "SYNO.Foto.Upload.Item":{"path":"entry.cgi","minVersion":1,"maxVersion":8}
+    }}
+    """#
+    StubURLProtocol.setHandler { request in
+        let url = request.url?.absoluteString ?? ""
+        if url.contains("SYNO.API.Info") { return (200, uploadInfo.data(using: .utf8)!) }
+        // 로그인도 업로드도 POST다. 로그인은 자격증명을 폼 본문에 담아 URL에 아무
+        // 질의도 없이 가므로, 업로드 경로(_sid + Upload.Item)로 갈라야 한다.
+        if !url.contains("Upload.Item") { return (200, #"{"success":true,"data":{"sid":"SID"}}"#.data(using: .utf8)!) }
+        return (200, #"{"success":true,"data":{"id":4242}}"#.data(using: .utf8)!)
+    }
+
+    // 경계를 넘길 만큼 큰 파일(청크 8MB보다 크게)에 표식을 앞뒤로 박는다.
+    let head = Data("HEAD-MARKER".utf8)
+    let filler = Data(repeating: 0xAB, count: 9 * 1024 * 1024)
+    let tail = Data("TAIL-MARKER".utf8)
+    let payload = head + filler + tail
+    let tmpFile = FileManager.default.temporaryDirectory.appendingPathComponent("업로드 시험.jpg")
+    try payload.write(to: tmpFile)
+    defer { try? FileManager.default.removeItem(at: tmpFile) }
+    // mtime을 명시해 폼 필드까지 확인한다.
+    let when = Date(timeIntervalSince1970: 1_600_000_000)
+    try FileManager.default.setAttributes([.modificationDate: when], ofItemAtPath: tmpFile.path)
+
+    // 호스트를 달리해 새 캐시 키를 쓴다. APIInfoCache는 디스크 파일을 인스턴스끼리
+    // 공유하므로, 같은 호스트를 쓰면 앞선 검사가 저장한 (Upload.Item이 없는) 맵이
+    // 그대로 되살아난다 — 실제로 이 검사가 그렇게 한 번 실패했다.
+    let uploadConn = NASConnection(host: "upload.test", port: 5001, username: "me")
+    let uploadClient = SynologyClient(
+        connection: uploadConn, session: StubURLProtocol.makeSession(),
+        trustDelegate: CertificateTrustDelegate(host: uploadConn.host, port: uploadConn.port),
+        apiInfoCache: APIInfoCache())
+    let svc = FotoService(client: uploadClient, space: .personal)
+    try await svc.connect(username: "me", password: "pw")
+    let newID = try await svc.uploadItem(fileURL: tmpFile)
+    checks.expectEqual(newID, 4242, "업로드 응답의 새 항목 id를 돌려준다")
+
+    guard let body = StubURLProtocol.lastRequestBody,
+          let contentType = StubURLProtocol.lastContentType else {
+        checks.expect(false, "업로드 본문을 잡지 못했다"); throw FotoError.notConfigured
+    }
+
+    // 1) Content-Type의 boundary와 본문의 구분자가 일치하는가
+    let boundary = contentType.components(separatedBy: "boundary=").last ?? ""
+    checks.expect(!boundary.isEmpty, "Content-Type에 boundary가 있다")
+    let bodyText = String(decoding: body.prefix(2048), as: UTF8.self)
+    checks.expect(bodyText.hasPrefix("--\(boundary)\r\n"), "본문이 헤더의 boundary로 시작한다")
+
+    // 2) DSM이 요구하는 폼 필드(JSON 인용 포함)가 그대로인가
+    checks.expect(bodyText.contains("name=\"api\"\r\n\r\nSYNO.Foto.Upload.Item\r\n"), "api 필드")
+    checks.expect(bodyText.contains("name=\"uploadDestination\"\r\n\r\n\"timeline\"\r\n"), "uploadDestination은 따옴표째")
+    checks.expect(bodyText.contains("name=\"folder\"\r\n\r\n[\"PhotoLibrary\"]\r\n"), "folder는 배열 리터럴")
+    checks.expect(bodyText.contains("name=\"mtime\"\r\n\r\n1600000000\r\n"), "mtime은 파일의 수정 시각에서 온다")
+    checks.expect(bodyText.contains("filename=\"업로드 시험.jpg\""), "파일 이름은 JSON 인용되어 들어간다")
+
+    // 3) 파일 바이트가 손상 없이, 정확히 한 번 들어갔는가
+    checks.expect(body.range(of: head) != nil && body.range(of: tail) != nil, "파일의 처음과 끝 표식이 본문에 있다")
+    let terminator = Data("\r\n--\(boundary)--\r\n".utf8)
+    checks.expect(body.suffix(terminator.count) == terminator, "본문이 종료 구분자로 끝난다")
+    // 봉투 = 머리말 + 파일 + 꼬리말. 파일 바이트가 한 벌만 들어갔는지 길이로 확인한다.
+    let overhead = body.count - payload.count
+    checks.expect(overhead > 0 && overhead < 4096, "파일 외 오버헤드는 머리말/꼬리말뿐 (\(overhead) 바이트)")
+    // 청크 경계(8MB)에서 잘리거나 겹치지 않았는가
+    let fileStart = body.range(of: head)!.lowerBound
+    let extracted = body[fileStart..<(fileStart + payload.count)]
+    checks.expect(Data(extracted) == payload, "9MB 파일이 청크 경계를 넘어 바이트 단위로 동일하다")
+} catch {
+    checks.expect(false, "업로드 봉투 검사가 throw했다: \(error)")
+}
+
 StubURLProtocol.setHandler(nil)
 checks.finish()

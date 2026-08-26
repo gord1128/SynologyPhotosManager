@@ -161,14 +161,28 @@ struct PhotoPreviewView: View {
         // encoded original never sits in memory as a Data buffer (large photos).
         let tmp = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: tmp) }
-        guard (try? await service.downloadOriginal(itemIds: [item.id], to: tmp)) != nil,
-              let src = CGImageSourceCreateWithURL(tmp as CFURL, nil),
-              let cg = CGImageSourceCreateThumbnailAtIndex(src, 0, [
-                  kCGImageSourceCreateThumbnailFromImageAlways: true,
-                  kCGImageSourceCreateThumbnailWithTransform: true,
-                  kCGImageSourceThumbnailMaxPixelSize: 100_000,   // huge cap ⇒ full-size
-              ] as CFDictionary) else { return }
-        originalImage = NSImage(cgImage: cg, size: NSSize(width: cg.width, height: cg.height))
+        guard (try? await service.downloadOriginal(itemIds: [item.id], to: tmp)) != nil else { return }
+
+        // Cap the decode at roughly twice the widest screen instead of decoding
+        // at full size. A 61 MP photo decodes to a ~240 MB bitmap that no
+        // display can show; 2× the screen still has headroom for zooming in.
+        let cap = Int((NSScreen.screens.map(\.frame.width).max() ?? 3000)
+                      * (NSScreen.main?.backingScaleFactor ?? 2) * 2)
+
+        // ImageIO decode is CPU-bound and this runs in a view's task — i.e. on
+        // the main actor. Opening a large photo used to hitch the whole window.
+        let decoded = await Task.detached(priority: .userInitiated) { () -> NSImage? in
+            guard let src = CGImageSourceCreateWithURL(tmp as CFURL, nil),
+                  let cg = CGImageSourceCreateThumbnailAtIndex(src, 0, [
+                      kCGImageSourceCreateThumbnailFromImageAlways: true,
+                      kCGImageSourceCreateThumbnailWithTransform: true,
+                      kCGImageSourceShouldCacheImmediately: true,
+                      kCGImageSourceThumbnailMaxPixelSize: cap,
+                  ] as CFDictionary) else { return nil }
+            return NSImage(cgImage: cg, size: NSSize(width: cg.width, height: cg.height))
+        }.value
+        guard let decoded, !Task.isCancelled else { return }
+        originalImage = decoded
     }
 
     private func prepareVideo() async {
