@@ -89,20 +89,31 @@ echo "· 검증"
 codesign --verify --strict --verbose=2 "$APP" 2>&1 | sed 's/^/    /'
 
 # ★ 이 세 검사가 이 스크립트의 존재 이유다.
+#
+# 출력을 먼저 변수에 담고 검사한다. `codesign … | grep -q` 로 쓰면 grep이 첫 일치에서
+# 끝나며 codesign이 SIGPIPE로 죽고, `set -o pipefail` 아래에서는 그 죽음이 곧
+# 파이프라인 실패가 된다 — 조건이 참인데 거짓으로 읽힌다. 실제로 이 스크립트가
+# 멀쩡한 ad-hoc 서명을 「개발 서명이 샜다」며 거부했다.
 ENT=$(codesign -d --entitlements - --xml "$APP" 2>/dev/null | plutil -convert xml1 -o - - 2>/dev/null || true)
-if printf '%s' "$ENT" | grep -q 'get-task-allow'; then
-    echo "거부: 배포본에 get-task-allow가 들어 있다 — 디버거가 붙어 비밀번호를 읽을 수 있다" >&2
-    exit 1
-fi
-if ! printf '%s' "$ENT" | grep -q 'app-sandbox'; then
-    echo "거부: 샌드박스 엔타이틀먼트가 없다 — 서명할 때 --entitlements를 빠뜨렸다" >&2
-    exit 1
-fi
-if ! codesign -dv --verbose=2 "$APP" 2>&1 | grep -q 'Signature=adhoc'; then
-    echo "거부: ad-hoc 서명이 아니다 — 개발 서명이 새어 들어왔다" >&2
-    exit 1
-fi
-codesign -dv --verbose=2 "$APP" 2>&1 | grep -E 'flags|Signature|Identifier' | sed 's/^/    /'
+SIGINFO=$(codesign -dv --verbose=2 "$APP" 2>&1 || true)
+
+case "$ENT" in
+    *get-task-allow*)
+        echo "거부: 배포본에 get-task-allow가 들어 있다 — 디버거가 붙어 비밀번호를 읽을 수 있다" >&2
+        exit 1 ;;
+esac
+case "$ENT" in
+    *app-sandbox*) ;;
+    *)  echo "거부: 샌드박스 엔타이틀먼트가 없다 — 서명할 때 --entitlements를 빠뜨렸다" >&2
+        exit 1 ;;
+esac
+case "$SIGINFO" in
+    *"Signature=adhoc"*) ;;
+    *)  echo "거부: ad-hoc 서명이 아니다 — 개발 서명이 새어 들어왔다" >&2
+        printf '%s\n' "$SIGINFO" | sed 's/^/    /' >&2
+        exit 1 ;;
+esac
+printf '%s\n' "$SIGINFO" | grep -E 'flags|Signature|Identifier' | sed 's/^/    /'
 
 echo "· DMG"
 DMG="$OUT/$APP_NAME-$VERSION.dmg"
