@@ -29,6 +29,20 @@ struct SimilarPhotosView: View {
                         ForEach(vm.groups.filter { !$0.isDismissed }) { group in
                             GroupCard(group: group, vm: vm, onDelete: { pendingDelete = group })
                         }
+                        // The scan is capped per pass — offer the rest rather
+                        // than ending the list as if the library were exhausted.
+                        if vm.hasMore {
+                            VStack(spacing: 8) {
+                                Text("여기까지가 최근 사진에서 찾은 묶음입니다.")
+                                    .font(.callout).foregroundStyle(.secondary)
+                                Button(vm.isLoading ? "더 찾는 중…" : "이전 사진에서 더 찾기") {
+                                    Task { await vm.loadMore() }
+                                }
+                                .disabled(vm.isLoading)
+                            }
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 12)
+                        }
                     }
                     .padding(16)
                 }
