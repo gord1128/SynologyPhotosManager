@@ -5,11 +5,31 @@ import Foundation
 final class StubURLProtocol: URLProtocol {
     nonisolated(unsafe) private static var _handler: ((URLRequest) -> (Int, Data))?
     nonisolated(unsafe) private(set) static var lastRequestURL: URL?
+    /// Body of the last request. A file-streamed upload arrives as
+    /// `httpBodyStream`, never `httpBody`, so both are captured — it's the only
+    /// way to check the multipart envelope without a real NAS.
+    nonisolated(unsafe) private(set) static var lastRequestBody: Data?
+    nonisolated(unsafe) private(set) static var lastContentType: String?
     private static let lock = NSLock()
 
     static func setHandler(_ handler: ((URLRequest) -> (Int, Data))?) {
         lock.lock(); defer { lock.unlock() }
-        _handler = handler; lastRequestURL = nil
+        _handler = handler; lastRequestURL = nil; lastRequestBody = nil; lastContentType = nil
+    }
+
+    private static func body(of request: URLRequest) -> Data? {
+        if let body = request.httpBody { return body }
+        guard let stream = request.httpBodyStream else { return nil }
+        stream.open()
+        defer { stream.close() }
+        var collected = Data()
+        var buffer = [UInt8](repeating: 0, count: 64 * 1024)
+        while stream.hasBytesAvailable {
+            let read = stream.read(&buffer, maxLength: buffer.count)
+            if read <= 0 { break }
+            collected.append(buffer, count: read)
+        }
+        return collected
     }
 
     private static func handler() -> ((URLRequest) -> (Int, Data))? {
@@ -27,7 +47,13 @@ final class StubURLProtocol: URLProtocol {
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
 
     override func startLoading() {
-        Self.lock.lock(); Self.lastRequestURL = request.url; Self.lock.unlock()
+        let capturedBody = Self.body(of: request)
+        let capturedType = request.value(forHTTPHeaderField: "Content-Type")
+        Self.lock.lock()
+        Self.lastRequestURL = request.url
+        Self.lastRequestBody = capturedBody
+        Self.lastContentType = capturedType
+        Self.lock.unlock()
         guard let handler = Self.handler() else {
             client?.urlProtocol(self, didFailWithError: URLError(.unknown)); return
         }

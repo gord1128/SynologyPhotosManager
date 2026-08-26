@@ -346,13 +346,22 @@ struct ContentView: View {
         case .connecting:
             ProgressView("연결 중…").frame(maxWidth: .infinity, maxHeight: .infinity)
         case .failed(let message):
-            ContentUnavailableView {
-                Label("연결 실패", systemImage: "wifi.exclamationmark")
-            } description: {
-                Text(message)
-            } actions: {
-                Button("다시 연결") { Task { await model.reconnect() } }
-                Button("연결 편집") { showingAdd = true }
+            // An update that loosened the Local Network grant reports itself as
+            // "인터넷 연결이 오프라인" — the generic pane would send the user to
+            // check their router. Name the real cause instead.
+            if model.needsLocalNetworkReset {
+                LocalNetworkResetView(
+                    onRetry: { await model.reconnect() },
+                    onDismiss: { model.dismissLocalNetworkReset() })
+            } else {
+                ContentUnavailableView {
+                    Label("연결 실패", systemImage: "wifi.exclamationmark")
+                } description: {
+                    Text(message)
+                } actions: {
+                    Button("다시 연결") { Task { await model.reconnect() } }
+                    Button("연결 편집") { showingAdd = true }
+                }
             }
         default:
             ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)

@@ -29,6 +29,25 @@ struct MapView: View {
             if vm.geoItems.isEmpty {
                 overlayState
             }
+
+            // The sweep is capped, so say so rather than passing a partial map
+            // off as the whole library.
+            if vm.hasMore && !vm.geoItems.isEmpty {
+                VStack {
+                    Spacer()
+                    HStack(spacing: 10) {
+                        Text("최근 \(vm.scanned.formatted())장까지 표시 중")
+                            .font(.callout).foregroundStyle(.secondary)
+                        Button(vm.isLoading ? "불러오는 중…" : "더 불러오기") {
+                            Task { await vm.loadMore() }
+                        }
+                        .disabled(vm.isLoading)
+                    }
+                    .padding(.horizontal, DS.s4).padding(.vertical, DS.s3)
+                    .dsCard()
+                    .padding(.bottom, DS.s4)
+                }
+            }
         }
         .navigationTitle("지도")
         .task {

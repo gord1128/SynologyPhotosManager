@@ -29,6 +29,35 @@ public struct FotoItem: Decodable, Identifiable, Sendable {
     /// member of the group; `topPick` is Synology's recommended keeper.
     public let similar: FotoSimilarGroup?
 
+    private enum CodingKeys: String, CodingKey {
+        case id, filename, filesize, folderId, ownerUserId, time, indexedTime, type, additional, similar
+    }
+
+    /// `id` is the only genuinely required field — without it an item can't be
+    /// thumbnailed, opened or deleted, so a row missing it is useless anyway.
+    /// Everything else falls back: a photo that shows with a placeholder name is
+    /// strictly better than a photo that vanishes from the library because this
+    /// NAS's DSM didn't send `indexed_time`. See `decodeLenient` for why the
+    /// strict version was dangerous.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(Int.self, forKey: .id)
+        filename = (try? c.decode(String.self, forKey: .filename)) ?? "이름 없음"
+        filesize = (try? c.decode(Int.self, forKey: .filesize)) ?? 0
+        folderId = (try? c.decode(Int.self, forKey: .folderId)) ?? 0
+        ownerUserId = (try? c.decode(Int.self, forKey: .ownerUserId)) ?? 0
+        indexedTime = (try? c.decode(Int.self, forKey: .indexedTime)) ?? 0
+        // Fall back to the indexed time, not 0 — a 1970 taken-date would pile
+        // every such photo into a bogus section at the bottom of the timeline
+        // instead of near where it belongs.
+        time = (try? c.decode(Int.self, forKey: .time)) ?? indexedTime
+        type = (try? c.decode(FotoMediaType.self, forKey: .type)) ?? .photo
+        // `try?` around a *present but malformed* value: one unreadable `gps`
+        // or `similar` block must not take the whole item down with it.
+        additional = try? c.decodeIfPresent(FotoItemAdditional.self, forKey: .additional)
+        similar = try? c.decodeIfPresent(FotoSimilarGroup.self, forKey: .similar)
+    }
+
     public var takenAt: Date { Date(timeIntervalSince1970: TimeInterval(time)) }
 
     /// Displayed width/height ratio (accounts for EXIF orientation) for the
@@ -72,6 +101,21 @@ public struct FotoSimilarGroup: Decodable, Sendable, Identifiable {
     public let count: Int
     public let itemId: [Int]
     public let topPick: Int
+
+    private enum CodingKeys: String, CodingKey { case id, count, itemId, topPick }
+
+    /// A malformed group must not cost us the photo it hangs off, so only `id`
+    /// is required and the roster degrades to "not a stack" rather than failing.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(Int.self, forKey: .id)
+        itemId = (try? c.decode([Int].self, forKey: .itemId)) ?? []
+        // `count` drives the stack badge; trust the roster when it's missing.
+        count = (try? c.decode(Int.self, forKey: .count)) ?? itemId.count
+        // No top pick reported ⇒ keep the first member (matches the UI's
+        // fallback when it resolves members).
+        topPick = (try? c.decode(Int.self, forKey: .topPick)) ?? (itemId.first ?? id)
+    }
 
     /// The members to drop if the top pick is kept.
     public var removableIds: [Int] { itemId.filter { $0 != topPick } }
@@ -134,6 +178,28 @@ public struct FotoItemAdditional: Decodable, Sendable {
     /// JSON bool; `rating` is 0–5.
     public let favorite: Bool?
     public let rating: Int?
+
+    private enum CodingKeys: String, CodingKey {
+        case thumbnail, resolution, orientation, exif, gps, address, videoMeta, favorite, rating
+    }
+
+    /// Every field is decoded independently. The synthesized initializer throws
+    /// when a *present* value is the wrong shape (e.g. a `gps` block with a
+    /// string latitude), which would cost us the thumbnail too — and no
+    /// thumbnail means a blank cell in the grid. Losing one bad field is the
+    /// cheaper failure.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        thumbnail = try? c.decodeIfPresent(FotoThumbnail.self, forKey: .thumbnail)
+        resolution = try? c.decodeIfPresent(FotoResolution.self, forKey: .resolution)
+        orientation = try? c.decodeIfPresent(Int.self, forKey: .orientation)
+        exif = try? c.decodeIfPresent(FotoExif.self, forKey: .exif)
+        gps = try? c.decodeIfPresent(FotoGPS.self, forKey: .gps)
+        address = try? c.decodeIfPresent(FotoAddress.self, forKey: .address)
+        videoMeta = try? c.decodeIfPresent(FotoVideoMeta.self, forKey: .videoMeta)
+        favorite = try? c.decodeIfPresent(Bool.self, forKey: .favorite)
+        rating = try? c.decodeIfPresent(Int.self, forKey: .rating)
+    }
 }
 
 /// Video technical metadata (`additional=["video_meta"]`). `duration` is in
@@ -229,6 +295,14 @@ public struct FotoTimelineSection: Decodable, Sendable {
     public let offset: Int
     public let limit: Int
     public let list: [FotoTimelineDay]
+
+    private enum CodingKeys: String, CodingKey { case offset, limit, list }
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        offset = (try? c.decode(Int.self, forKey: .offset)) ?? 0
+        limit = (try? c.decode(Int.self, forKey: .limit)) ?? 0
+        list = c.decodeLenient(FotoTimelineDay.self, forKey: .list)
+    }
 }
 
 // MARK: - Folder
@@ -239,6 +313,21 @@ public struct FotoFolder: Decodable, Identifiable, Sendable {
     public let parent: Int
     public let ownerUserId: Int
     public let shared: Bool
+
+    private enum CodingKeys: String, CodingKey { case id, name, parent, ownerUserId, shared }
+
+    /// Same rule as `FotoItem`: only the id is required, so one odd folder can't
+    /// empty the folder browser.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(Int.self, forKey: .id)
+        name = (try? c.decode(String.self, forKey: .name)) ?? "/"
+        parent = (try? c.decode(Int.self, forKey: .parent)) ?? 0
+        ownerUserId = (try? c.decode(Int.self, forKey: .ownerUserId)) ?? 0
+        // DSM has sent this as 0/1 as well as a bool, depending on the API.
+        if let b = try? c.decode(Bool.self, forKey: .shared) { shared = b }
+        else { shared = ((try? c.decode(Int.self, forKey: .shared)) ?? 0) != 0 }
+    }
 
     /// Leaf name for display (DSM returns full paths like "/MobileBackup").
     public var displayName: String {
@@ -261,6 +350,17 @@ public struct FotoAlbum: Decodable, Identifiable, Sendable, Hashable {
     public let passphrase: String?
     /// Cover thumbnail, present when listed with `additional=["thumbnail"]`.
     public let additional: FotoAlbumAdditional?
+
+    private enum CodingKeys: String, CodingKey { case id, name, itemCount, passphrase, additional }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(Int.self, forKey: .id)
+        name = (try? c.decode(String.self, forKey: .name)) ?? "이름 없는 앨범"
+        itemCount = (try? c.decode(Int.self, forKey: .itemCount)) ?? 0
+        passphrase = try? c.decodeIfPresent(String.self, forKey: .passphrase)
+        additional = try? c.decodeIfPresent(FotoAlbumAdditional.self, forKey: .additional)
+    }
 
     // Hash by id only, so `additional` needn't be Hashable (NavigationLink).
     public static func == (lhs: FotoAlbum, rhs: FotoAlbum) -> Bool { lhs.id == rhs.id }
@@ -292,6 +392,19 @@ public struct FotoPerson: Decodable, Identifiable, Sendable, Hashable {
     /// Unit id of the cover face; feeds `SYNO.Foto.Thumbnail` with `type=person`.
     public let cover: Int
     public let additional: FotoPersonAdditional?
+
+    private enum CodingKeys: String, CodingKey { case id, name, itemCount, cover, additional }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(Int.self, forKey: .id)
+        // An empty name is meaningful here — it's how DSM marks an unnamed
+        // cluster — so the fallback matches that, not a placeholder string.
+        name = (try? c.decode(String.self, forKey: .name)) ?? ""
+        itemCount = (try? c.decode(Int.self, forKey: .itemCount)) ?? 0
+        cover = (try? c.decode(Int.self, forKey: .cover)) ?? 0
+        additional = try? c.decodeIfPresent(FotoPersonAdditional.self, forKey: .additional)
+    }
 
     /// Display name, falling back to a placeholder for unnamed clusters.
     public var displayName: String { name.isEmpty ? "이름 없음" : name }
@@ -352,6 +465,19 @@ public struct FotoPlace: Decodable, Sendable, Identifiable, Hashable {
     public let name: String
     public let children: [FotoPlace]
 
+    private enum CodingKeys: String, CodingKey { case id, level, name, children }
+
+    /// The tree is decoded element-wise at every level: one unreadable district
+    /// shouldn't cost the country it sits under, and losing `geocoding` entirely
+    /// empties the whole place filter.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(Int.self, forKey: .id)
+        level = (try? c.decode(Int.self, forKey: .level)) ?? 0
+        name = (try? c.decode(String.self, forKey: .name)) ?? "이름 없음"
+        children = c.decodeLenient(FotoPlace.self, forKey: .children)
+    }
+
     /// This node + all descendants, flattened with their depth (0 = top).
     public func flattened(depth: Int = 0) -> [(place: FotoPlace, depth: Int)] {
         [(self, depth)] + children.flatMap { $0.flattened(depth: depth + 1) }
@@ -379,21 +505,75 @@ public struct FotoFilterFacets: Decodable, Sendable {
         self.camera = camera; self.lens = lens; self.iso = iso
         self.aperture = aperture; self.geocoding = geocoding
     }
+
+    private enum CodingKeys: String, CodingKey { case camera, lens, iso, aperture, geocoding }
+
+    /// Each facet stands alone. Strictly decoded, a NAS that omits `lens` (no
+    /// lens metadata indexed yet) would empty the entire filter panel — camera,
+    /// ISO, aperture and places included.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        camera = c.decodeLenient(FotoFilterOption.self, forKey: .camera)
+        lens = c.decodeLenient(FotoFilterOption.self, forKey: .lens)
+        iso = c.decodeLenient(FotoFilterOption.self, forKey: .iso)
+        aperture = c.decodeLenient(FotoFilterOption.self, forKey: .aperture)
+        geocoding = c.decodeLenient(FotoPlace.self, forKey: .geocoding)
+    }
 }
 
 // MARK: - Response payload wrappers
 
-public struct FotoItemListData: Decodable, Sendable { public let list: [FotoItem] }
+// The `list` payloads are decoded element-wise (`decodeLenient`): a single row
+// this build doesn't understand costs that row, not the whole page. Dropped
+// rows are logged — see `Lenient.swift` for the reasoning.
+
+public struct FotoItemListData: Decodable, Sendable {
+    public let list: [FotoItem]
+    private enum CodingKeys: String, CodingKey { case list }
+    public init(from decoder: Decoder) throws {
+        list = try decoder.container(keyedBy: CodingKeys.self).decodeLenient(FotoItem.self, forKey: .list)
+    }
+}
 public struct FotoCountData: Decodable, Sendable { public let count: Int }
 public struct FotoTimelineData: Decodable, Sendable { public let section: [FotoTimelineSection] }
 public struct FotoFolderData: Decodable, Sendable { public let folder: FotoFolder }
-public struct FotoFolderListData: Decodable, Sendable { public let list: [FotoFolder] }
-public struct FotoAlbumListData: Decodable, Sendable { public let list: [FotoAlbum] }
+public struct FotoFolderListData: Decodable, Sendable {
+    public let list: [FotoFolder]
+    private enum CodingKeys: String, CodingKey { case list }
+    public init(from decoder: Decoder) throws {
+        list = try decoder.container(keyedBy: CodingKeys.self).decodeLenient(FotoFolder.self, forKey: .list)
+    }
+}
+public struct FotoAlbumListData: Decodable, Sendable {
+    public let list: [FotoAlbum]
+    private enum CodingKeys: String, CodingKey { case list }
+    public init(from decoder: Decoder) throws {
+        list = try decoder.container(keyedBy: CodingKeys.self).decodeLenient(FotoAlbum.self, forKey: .list)
+    }
+}
 public struct FotoAlbumCreateData: Decodable, Sendable { public let album: FotoAlbum }
 public struct FotoUploadData: Decodable, Sendable { public let id: Int }
-public struct FotoPersonListData: Decodable, Sendable { public let list: [FotoPerson] }
-public struct FotoSuggestListData: Decodable, Sendable { public let list: [FotoSearchSuggestion] }
-public struct FotoGeocodingFilterData: Decodable, Sendable { public let geocoding: [FotoPlace] }
+public struct FotoPersonListData: Decodable, Sendable {
+    public let list: [FotoPerson]
+    private enum CodingKeys: String, CodingKey { case list }
+    public init(from decoder: Decoder) throws {
+        list = try decoder.container(keyedBy: CodingKeys.self).decodeLenient(FotoPerson.self, forKey: .list)
+    }
+}
+public struct FotoSuggestListData: Decodable, Sendable {
+    public let list: [FotoSearchSuggestion]
+    private enum CodingKeys: String, CodingKey { case list }
+    public init(from decoder: Decoder) throws {
+        list = try decoder.container(keyedBy: CodingKeys.self).decodeLenient(FotoSearchSuggestion.self, forKey: .list)
+    }
+}
+public struct FotoGeocodingFilterData: Decodable, Sendable {
+    public let geocoding: [FotoPlace]
+    private enum CodingKeys: String, CodingKey { case geocoding }
+    public init(from decoder: Decoder) throws {
+        geocoding = try decoder.container(keyedBy: CodingKeys.self).decodeLenient(FotoPlace.self, forKey: .geocoding)
+    }
+}
 // Album.get with additional=["sharing_info"] → data.list[0].additional.sharing_info
 public struct FotoAlbumGetData: Decodable, Sendable {
     public let list: [Album]

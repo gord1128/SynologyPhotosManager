@@ -1,6 +1,7 @@
 import Foundation
 import Observation
 import FotoKit
+import SynoKit
 
 /// Drives the photo grid: paginated item loading + date-sectioned grouping +
 /// selection. One instance per connected `FotoService` (recreated on
@@ -214,10 +215,13 @@ final class LibraryViewModel {
                 reachedEnd = true
             } else {
                 items.append(contentsOf: next)
-                sections = TimelineGrouping.sections(from: items, scale: scale)
+                // Group only the new page. Regrouping everything here is O(n)
+                // per page on the main actor — see `TimelineGrouping.appending`.
+                sections = TimelineGrouping.appending(next, to: sections, scale: scale)
             }
         } catch {
             errorMessage = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+            SynoLog.app.error("타임라인 페이지 실패 offset=\(self.items.count, privacy: .public) 필터=\(self.hasActiveFilter, privacy: .public)")
         }
     }
 
@@ -250,11 +254,26 @@ final class LibraryViewModel {
     }
 
     /// Loads more pages until the given year appears (or the timeline ends), so a
-    /// year further back than what's loaded can still be jumped to. Bounded by
-    /// the library size (~thousands of photos → a handful of pages).
+    /// year further back than what's loaded can still be jumped to.
+    ///
+    /// Every exit is a *progress* check, not a page count. `loadMore()` reports
+    /// failure by setting `errorMessage` while leaving `items` and `reachedEnd`
+    /// untouched — so the original `while` re-issued the same offset forever if
+    /// the network dropped while the user was dragging the year rail. One
+    /// unlucky moment, and the app hammered the NAS until it was quit.
     func ensureYearLoaded(_ year: Int) async {
         while firstSectionID(forYear: year) == nil && !reachedEnd {
+            // The rail can be dragged past this year, or the view dismissed,
+            // while a page is in flight.
+            if Task.isCancelled { return }
+            let before = items.count
             await loadMore()
+            // The failure is already on screen (the grid shows errorMessage);
+            // retrying is the user's call, not a loop's.
+            if errorMessage != nil { return }
+            // No new rows and no end-of-timeline flag: nothing this loop does
+            // will change that.
+            if items.count == before { return }
         }
     }
 
