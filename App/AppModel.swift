@@ -90,6 +90,37 @@ final class AppModel {
     /// Gates the 개인/공유 toggle — the API can exist while the space is disabled.
     private(set) var sharedSpaceUsable = false
 
+    /// True when a failed connection looks like macOS Local Network permission
+    /// having come loose after an app update, rather than a real network fault.
+    ///
+    /// The tell is the combination: the app's build changed since the last
+    /// successful connection AND the failure is a transport-level one (-1009 and
+    /// friends). The permission is keyed to the code signature, so replacing the
+    /// app invalidates the grant while System Settings still shows it ON — and
+    /// the resulting error says "인터넷 연결이 오프라인", which sends everyone
+    /// chasing their router. See `LocalNetworkResetView`.
+    private(set) var needsLocalNetworkReset = false
+
+    private static let lastGoodBuildKey = "lastConnectedBuild"
+
+    /// Records the build that last reached the NAS, so the next failure can tell
+    /// "이 빌드는 원래 되던 것" from "업데이트하고 나서 안 된다".
+    private func rememberSuccessfulBuild() {
+        UserDefaults.standard.set(Diagnostics.build, forKey: Self.lastGoodBuildKey)
+        needsLocalNetworkReset = false
+    }
+
+    private var buildChangedSinceLastSuccess: Bool {
+        guard let last = UserDefaults.standard.string(forKey: Self.lastGoodBuildKey) else {
+            // Never connected on any build — a first run's failure is a setup
+            // problem, not a permission that came loose.
+            return false
+        }
+        return last != Diagnostics.build
+    }
+
+    func dismissLocalNetworkReset() { needsLocalNetworkReset = false }
+
     /// Set when a connection attempt hit an untrusted/changed TLS certificate;
     /// drives the trust prompt. Cleared on accept/reject.
     var pendingCertificate: CertificateChallenge?
@@ -144,6 +175,7 @@ final class AppModel {
             fotoService = service
             connectionState = .connected
             SynoLog.app.notice("연결 성공 (재시도 잔여 \(retriesOnTransient, privacy: .public))")
+            rememberSuccessfulBuild()
             // Only surface the 개인/공유 toggle when the shared space really works
             // (its API can exist while disabled → err 801). Probe after connect.
             sharedSpaceUsable = await service.sharedSpaceIsUsable()
@@ -169,7 +201,15 @@ final class AppModel {
                               retriesOnTransient: retriesOnTransient - 1, retryDelay: nextDelay)
                 return
             }
-            SynoLog.app.error("연결 실패 (재시도 소진) transient=\(Self.isTransientNetworkError(error), privacy: .public) \(String(describing: error), privacy: .private)")
+            let transient = Self.isTransientNetworkError(error)
+            SynoLog.app.error("연결 실패 (재시도 소진) transient=\(transient, privacy: .public) \(String(describing: error), privacy: .private)")
+            // A transport failure on a build that has never connected, when an
+            // older build had: the retries above already ruled out a warmup
+            // blip, so this is the Local Network grant, not the network.
+            if transient, buildChangedSinceLastSuccess {
+                needsLocalNetworkReset = true
+                SynoLog.app.error("업데이트 후 첫 연결이 전송 오류 — 로컬 네트워크 권한 재동기화 안내 표시")
+            }
             connectionState = .failed((error as? LocalizedError)?.errorDescription ?? error.localizedDescription)
         }
     }
