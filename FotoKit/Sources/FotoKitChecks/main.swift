@@ -124,5 +124,89 @@ checks.expect((FotoError.from(600) as? FotoError).map { if case .invalidParamete
 checks.expect((FotoError.from(103) as? FotoError).map { if case .methodNotFound = $0 { return true }; return false } == true, "103 → methodNotFound")
 checks.expect((FotoError.from(105) as? SynologyAPIError).map { if case .sessionExpired = $0 { return true }; return false } == true, "session code 105 → sessionExpired")
 
+
+// MARK: - Lenient decoding (BUG: one odd row used to kill the whole page)
+
+checks.section("Lenient decoding")
+
+// A page whose rows are: (1) complete, (2) missing every optional-ish field,
+// (3) unusable (no id). Strictly decoded this threw and the user got an empty
+// grid for a library that is almost entirely fine.
+let mixedPage = Data("""
+{"success":true,"data":{"list":[
+  {"id":11,"filename":"good.jpg","filesize":100,"folder_id":3,"owner_user_id":1,"time":1700000000,"indexed_time":1700000001,"type":"photo"},
+  {"id":12,"indexed_time":1600000000},
+  {"filename":"no-id.jpg","type":"photo"}
+]}}
+""".utf8)
+
+do {
+    let env = try decoder.decode(DSMEnvelope<FotoItemListData>.self, from: mixedPage)
+    let list = env.data?.list ?? []
+    checks.expectEqual(list.count, 2, "id 있는 두 줄은 살아남고 id 없는 줄만 버려진다")
+    checks.expect(list.first?.filename == "good.jpg", "정상 항목은 그대로 디코딩된다")
+    let sparse = list.first { $0.id == 12 }
+    checks.expect(sparse != nil, "필드가 대부분 빠진 항목도 살아남는다")
+    checks.expect(sparse?.filename == "이름 없음", "빠진 filename은 자리표로 대체된다")
+    checks.expectEqual(sparse?.filesize ?? -1, 0, "빠진 filesize는 0")
+    checks.expectEqual(sparse?.type ?? .video, .photo, "빠진 type은 사진으로 본다")
+    // 촬영일이 없으면 색인 시각으로 — 0이면 1970년 섹션에 몰린다.
+    checks.expectEqual(sparse?.time ?? -1, 1600000000, "빠진 time은 indexed_time으로 대체된다")
+} catch {
+    checks.expect(false, "관대 디코딩이 여전히 throw한다: \(error)")
+}
+
+// 망가진 gps 하나가 썸네일까지 앗아가면 그리드가 빈 칸이 된다.
+let badGPS = Data("""
+{"success":true,"data":{"list":[
+  {"id":21,"filename":"a.jpg","filesize":1,"folder_id":1,"owner_user_id":1,"time":1,"indexed_time":1,"type":"photo",
+   "additional":{"thumbnail":{"cache_key":"21_1","unit_id":21,"sm":"ready"},"gps":{"latitude":"북위 37도","longitude":127.0}}}
+]}}
+""".utf8)
+
+do {
+    let env = try decoder.decode(DSMEnvelope<FotoItemListData>.self, from: badGPS)
+    let item = env.data?.list.first
+    checks.expectEqual(env.data?.list.count ?? -1, 1, "additional 일부가 망가져도 항목은 남는다")
+    checks.expect(item?.additional?.thumbnail?.cacheKey == "21_1", "망가진 gps 옆의 thumbnail은 보존된다")
+    checks.expect(item?.additional?.gps == nil, "망가진 gps만 버려진다")
+} catch {
+    checks.expect(false, "additional 관대 디코딩이 throw한다: \(error)")
+}
+
+// 패싯 하나가 없다고 필터 패널 전체가 비면 안 된다.
+let partialFacets = Data("""
+{"success":true,"data":{"camera":[{"id":1,"name":"ILCE-7M4"}],"iso":[],"aperture":[],
+ "geocoding":[{"id":9,"level":1,"name":"대한민국","children":[{"id":10,"level":2,"name":"서울"},{"level":2}]}]}}
+""".utf8)
+
+do {
+    let env = try decoder.decode(DSMEnvelope<FotoFilterFacets>.self, from: partialFacets)
+    let facets = env.data
+    checks.expectEqual(facets?.camera.count ?? -1, 1, "lens 키가 없어도 camera 패싯은 살아 있다")
+    checks.expectEqual(facets?.lens.count ?? -1, 0, "없는 패싯은 빈 배열")
+    checks.expectEqual(facets?.geocoding.first?.children.count ?? -1, 1, "id 없는 하위 장소만 버려진다")
+} catch {
+    checks.expect(false, "패싯 관대 디코딩이 throw한다: \(error)")
+}
+
+// 유사 사진 묶음이 망가져도 대표 사진은 타임라인에 남아야 한다.
+let badSimilar = Data("""
+{"success":true,"data":{"list":[
+  {"id":31,"filename":"burst.jpg","filesize":1,"folder_id":1,"owner_user_id":1,"time":1,"indexed_time":1,"type":"photo",
+   "similar":{"id":5,"item_id":[31,32,33]}}
+]}}
+""".utf8)
+
+do {
+    let env = try decoder.decode(DSMEnvelope<FotoItemListData>.self, from: badSimilar)
+    let item = env.data?.list.first
+    checks.expectEqual(env.data?.list.count ?? -1, 1, "similar가 불완전해도 항목은 남는다")
+    checks.expectEqual(item?.similar?.count ?? -1, 3, "빠진 count는 로스터 길이로 채운다")
+    checks.expectEqual(item?.similar?.topPick ?? -1, 31, "빠진 top_pick은 첫 구성원")
+} catch {
+    checks.expect(false, "similar 관대 디코딩이 throw한다: \(error)")
+}
+
 StubURLProtocol.setHandler(nil)
 checks.finish()
