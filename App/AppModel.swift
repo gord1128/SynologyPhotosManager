@@ -134,6 +134,11 @@ final class AppModel {
     private let pathMonitor = NWPathMonitor()
     private var pathIsSatisfied = true
     private var monitoringStarted = false
+    /// Whether the LAST connection failure was a transport blip rather than a
+    /// rejection. Only a blip is worth retrying when the network returns:
+    /// re-sending a password the NAS already refused just piles up failed
+    /// logins (and on a WAN address, walks into DSM's auto-block).
+    private var lastFailureWasTransient = false
 
     init() {
         let selectedID = CredentialStore.selectedConnectionID()
@@ -158,6 +163,7 @@ final class AppModel {
         // Act only on the not-satisfied → satisfied edge, and only when a
         // connection actually failed (don't disturb a healthy/in-progress one).
         guard satisfied, !pathIsSatisfied else { return }
+        guard lastFailureWasTransient else { return }
         if case .failed = connectionState {
             Task { await reconnect() }
         }
@@ -174,6 +180,7 @@ final class AppModel {
             try await service.connect(username: connection.username, password: password, otpCode: otpCode)
             fotoService = service
             connectionState = .connected
+            lastFailureWasTransient = false
             SynoLog.app.notice("연결 성공 (재시도 잔여 \(retriesOnTransient, privacy: .public))")
             rememberSuccessfulBuild()
             // Only surface the 개인/공유 toggle when the shared space really works
@@ -202,6 +209,7 @@ final class AppModel {
                 return
             }
             let transient = Self.isTransientNetworkError(error)
+            lastFailureWasTransient = transient
             SynoLog.app.error("연결 실패 (재시도 소진) transient=\(transient, privacy: .public) \(String(describing: error), privacy: .private)")
             // A transport failure on a build that has never connected, when an
             // older build had: the retries above already ruled out a warmup
@@ -366,6 +374,11 @@ final class AppModel {
             showInfo(items.count > 1 ? "\(items.count)장을 삭제했습니다." : "사진을 삭제했습니다.")
         } catch {
             showError("삭제 실패: \((error as? LocalizedError)?.errorDescription ?? error.localizedDescription)")
+            // The batch delete reports one boolean for the whole request, so a
+            // thrown error does NOT prove nothing was removed. Re-fetch instead
+            // of leaving rows on screen that may already be gone from the NAS.
+            SynoLog.app.error("삭제 실패 — 목록 재검증 요청 \(items.count, privacy: .public)건")
+            mutationCounter += 1
         }
     }
 
@@ -518,7 +531,14 @@ final class AppModel {
     }
 
     func upload(_ urls: [URL]) async {
-        guard let service = fotoService, !isUploading else { return }
+        guard let service = fotoService else { return }
+        // Drag-and-drop calls this directly, and `dropDestination` has already
+        // told the user the drop was accepted — so a silent bail reads as
+        // "the app ate my files".
+        guard !isUploading else {
+            showError("업로드가 진행 중입니다. 끝난 뒤 다시 놓아 주세요.")
+            return
+        }
         isUploading = true
         uploadTotal = urls.count
         uploadDone = 0
@@ -619,6 +639,7 @@ final class AppModel {
                 }
                 ok += 1
             } catch {
+                SynoLog.app.error("내보내기 실패 \(item.filename, privacy: .private): \(String(describing: error), privacy: .private)")
                 failures.append(item.filename)
             }
         }
@@ -729,8 +750,14 @@ final class AppModel {
     }
 
     /// Default timeline granularity for new sessions (설정 창). Persisted.
-    var defaultScale: TimelineScale {
-        get { TimelineScale(rawValue: UserDefaults.standard.string(forKey: "defaultScale") ?? "") ?? .month }
-        set { UserDefaults.standard.set(newValue.rawValue, forKey: "defaultScale") }
+    ///
+    /// A stored property, NOT a computed wrapper over UserDefaults: `@Observable`
+    /// only tracks stored properties, so the computed version changed the
+    /// default without telling SwiftUI, and the 설정 picker could snap back to
+    /// the old value.
+    static let defaultScaleKey = "defaultScale"
+    var defaultScale: TimelineScale = TimelineScale(
+        rawValue: UserDefaults.standard.string(forKey: AppModel.defaultScaleKey) ?? "") ?? .month {
+        didSet { UserDefaults.standard.set(defaultScale.rawValue, forKey: AppModel.defaultScaleKey) }
     }
 }

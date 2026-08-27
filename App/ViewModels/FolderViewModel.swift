@@ -1,6 +1,7 @@
 import Foundation
 import Observation
 import FotoKit
+import SynoKit
 
 /// Drives the folder browser: a breadcrumb path, the current folder's
 /// subfolders, and its (paginated) items. Shares the thumbnail loader style of
@@ -16,6 +17,7 @@ final class FolderViewModel {
     private(set) var subfolders: [FotoFolder] = []
     private(set) var items: [FotoItem] = []
     private(set) var isLoading = false
+    var errorMessage: String?
 
     var selectedIDs: Set<Int> = []
     private(set) var primaryID: Int?
@@ -68,7 +70,7 @@ final class FolderViewModel {
         guard let anchor = primaryID,
               let a = items.firstIndex(where: { $0.id == anchor }),
               let b = items.firstIndex(where: { $0.id == id }) else { selectSingle(id); return }
-        selectedIDs.formUnion(items[(a <= b ? a...b : b...a)].map(\.id))
+        selectedIDs = Set(items[(a <= b ? a...b : b...a)].map(\.id))
     }
     func clearSelection() { selectedIDs = []; primaryID = nil }
     func selectAll() { selectedIDs = Set(items.map(\.id)); primaryID = items.last?.id }
@@ -76,11 +78,16 @@ final class FolderViewModel {
     func loadMore() async {
         guard !isLoading, !reachedEnd else { return }
         isLoading = true
+        errorMessage = nil
         defer { isLoading = false }
-        if let next = try? await service.items(inFolder: currentId, offset: items.count, limit: pageSize) {
+        do {
+            let next = try await service.items(inFolder: currentId, offset: items.count, limit: pageSize)
             if next.isEmpty { reachedEnd = true } else { items.append(contentsOf: next) }
-        } else {
-            reachedEnd = true
+        } catch {
+            // Swallowing this and setting `reachedEnd` made a dropped
+            // connection look like an empty folder, with no way to retry.
+            errorMessage = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+            SynoLog.app.error("폴더 페이지 실패 offset=\(self.items.count, privacy: .public)")
         }
     }
 
@@ -105,12 +112,18 @@ final class FolderViewModel {
     }
 
     func selectPrevious() {
-        guard let idx = primaryIndex else { selectSingle(items.first?.id ?? -1); return }
+        guard let idx = primaryIndex else {
+            if let first = items.first { selectSingle(first.id) }
+            return
+        }
         if idx > 0 { selectSingle(items[idx - 1].id) }
     }
 
     func selectNext() {
-        guard let idx = primaryIndex else { selectSingle(items.first?.id ?? -1); return }
+        guard let idx = primaryIndex else {
+            if let first = items.first { selectSingle(first.id) }
+            return
+        }
         if idx < items.count - 1 { selectSingle(items[idx + 1].id) }
         if idx >= items.count - 5 { Task { await loadMore() } }
     }

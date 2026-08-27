@@ -88,6 +88,9 @@ struct TriageView: View {
             ContentUnavailableView("불러오기 실패", systemImage: "exclamationmark.triangle", description: Text(message))
         } else if vm.items.isEmpty && vm.isLoading {
             ProgressView().controlSize(.large)
+        } else if vm.isEmptyLibrary {
+            ContentUnavailableView("정리할 사진이 없습니다", systemImage: "tray",
+                                   description: Text("이 공간에 사진이 없습니다. 사진을 올린 뒤 다시 열어 보세요."))
         } else if vm.isAtEnd {
             completion
         } else if let item = vm.current {
@@ -153,7 +156,7 @@ struct TriageView: View {
                     Button("\(vm.deletePendingCount)장 삭제", role: .destructive) { commit() }
                     Button("취소", role: .cancel) {}
                 } message: {
-                    Text("Synology Photos에는 휴지통이 없어 복구할 수 없습니다.")
+                    Text("Synology Photos 안에는 휴지통이 없습니다. NAS 공유 폴더의 휴지통을 켜 두지 않았다면 되돌릴 수 없습니다.")
                 }
             }
         }
@@ -177,7 +180,7 @@ struct TriageView: View {
                 Button("\(vm.deletePendingCount)장 삭제", role: .destructive) { commit() }
                 Button("취소", role: .cancel) {}
             } message: {
-                Text("Synology Photos에는 휴지통이 없어 복구할 수 없습니다.")
+                Text("Synology Photos 안에는 휴지통이 없습니다. NAS 공유 폴더의 휴지통을 켜 두지 않았다면 되돌릴 수 없습니다.")
             }
         }
         .padding(.horizontal, DS.s4).padding(.vertical, DS.s2)

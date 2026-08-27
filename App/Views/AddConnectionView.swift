@@ -22,6 +22,19 @@ struct AddConnectionView: View {
     @State private var scanChecked = 0
     @State private var scanTotal = 0
 
+    /// Parsed port, or nil when the field isn't a usable TCP port. The old
+    /// `Int(port) ?? 5001` silently connected to a DIFFERENT machine than the
+    /// one the user typed, then blamed the address.
+    private var portNumber: Int? {
+        guard let n = Int(port.trimmingCharacters(in: .whitespaces)), (1...65535).contains(n) else { return nil }
+        return n
+    }
+
+    private var canSubmit: Bool {
+        !submitting && !host.isEmpty && !username.isEmpty && !password.isEmpty
+            && portNumber != nil && !(needsOTP && otpCode.trimmingCharacters(in: .whitespaces).isEmpty)
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             Text("Synology NAS 연결").font(.title2).bold()
@@ -31,6 +44,10 @@ struct AddConnectionView: View {
             Form {
                 TextField("주소", text: $host, prompt: Text("192.168.0.10 또는 nas.example.com"))
                 TextField("포트", text: $port)
+                if !port.isEmpty && portNumber == nil {
+                    Label("포트는 1–65535 사이의 숫자여야 합니다.", systemImage: "exclamationmark.triangle")
+                        .font(.caption).foregroundStyle(.orange)
+                }
                 TextField("사용자 이름", text: $username)
                 SecureField("비밀번호", text: $password)
                 if needsOTP {
@@ -49,7 +66,7 @@ struct AddConnectionView: View {
                 Button("취소") { dismiss() }
                 Button(submitting ? "연결 중…" : "연결") { Task { await submit() } }
                     .keyboardShortcut(.defaultAction)
-                    .disabled(submitting || host.isEmpty || username.isEmpty || password.isEmpty)
+                    .disabled(!canSubmit)
             }
         }
         .padding(20)
@@ -126,7 +143,10 @@ struct AddConnectionView: View {
         error = nil
         defer { submitting = false }
 
-        let portNumber = Int(port) ?? 5001
+        guard let portNumber else {
+            error = "포트는 1–65535 사이의 숫자여야 합니다."
+            return
+        }
         await model.addConnection(
             host: host.trimmingCharacters(in: .whitespaces),
             port: portNumber,

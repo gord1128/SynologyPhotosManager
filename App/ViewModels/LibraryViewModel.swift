@@ -76,12 +76,7 @@ final class LibraryViewModel {
 
     /// Re-runs the timeline with the current filters (called when a filter changes).
     func applyFilters() async {
-        items = []
-        sections = []
-        reachedEnd = false
-        errorMessage = nil
-        clearSelection()
-        await loadMore()
+        await runPage(offset: 0, replacing: true)
     }
 
     func clearAllFilters() {
@@ -193,24 +188,49 @@ final class LibraryViewModel {
 
     func loadMore() async {
         guard !isLoading, !reachedEnd else { return }
+        await runPage(offset: items.count, replacing: false)
+    }
+
+    /// Bumped whenever the result set is redefined (filter change, space switch,
+    /// reload). A page already in flight belongs to the PREVIOUS definition, so
+    /// it is dropped on arrival rather than appended to the freshly-cleared
+    /// list — which is how photos that didn't match the new filter used to show
+    /// up in it.
+    private var generation = 0
+
+    private func fetchPage(offset: Int) async throws -> [FotoItem] {
+        if hasActiveFilter {
+            return try await service.filteredItems(
+                itemTypes: typeFilter.itemTypes, timeRanges: timeRanges,
+                personIds: Array(selectedPersonIds), personPolicy: personPolicy.apiValue,
+                geocodingIds: Array(selectedCountryIds), favoriteOnly: favoriteOnly,
+                cameraIds: Array(selectedCameraIds), lensIds: Array(selectedLensIds),
+                isoIds: Array(selectedIsoIds), apertureIds: Array(selectedApertureIds),
+                offset: offset, limit: pageSize)
+        }
+        // Collapsed timeline (like Synology Photos): similar/burst shots fold
+        // into one stack row (its representative carries `.similar`).
+        return try await service.similarPage(offset: offset, limit: pageSize)
+    }
+
+    /// Fetches one page. `replacing` restarts the list from the top and
+    /// invalidates whatever is in flight; it deliberately does NOT wait on
+    /// `isLoading`, or a filter change during the first page would be swallowed.
+    private func runPage(offset: Int, replacing: Bool) async {
+        if replacing {
+            generation &+= 1
+            items = []
+            sections = []
+            reachedEnd = false
+            clearSelection()
+        }
+        let gen = generation
         isLoading = true
         errorMessage = nil   // clear any stale failure so a retry starts clean
-        defer { isLoading = false }
+        defer { if gen == generation { isLoading = false } }
         do {
-            let next: [FotoItem]
-            if hasActiveFilter {
-                next = try await service.filteredItems(
-                    itemTypes: typeFilter.itemTypes, timeRanges: timeRanges,
-                    personIds: Array(selectedPersonIds), personPolicy: personPolicy.apiValue,
-                    geocodingIds: Array(selectedCountryIds), favoriteOnly: favoriteOnly,
-                    cameraIds: Array(selectedCameraIds), lensIds: Array(selectedLensIds),
-                    isoIds: Array(selectedIsoIds), apertureIds: Array(selectedApertureIds),
-                    offset: items.count, limit: pageSize)
-            } else {
-                // Collapsed timeline (like Synology Photos): similar/burst shots
-                // fold into one stack row (its representative carries `.similar`).
-                next = try await service.similarPage(offset: items.count, limit: pageSize)
-            }
+            let next = try await fetchPage(offset: offset)
+            guard gen == generation else { return }
             if next.isEmpty {
                 reachedEnd = true
             } else {
@@ -220,8 +240,9 @@ final class LibraryViewModel {
                 sections = TimelineGrouping.appending(next, to: sections, scale: scale)
             }
         } catch {
+            guard gen == generation else { return }
             errorMessage = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
-            SynoLog.app.error("타임라인 페이지 실패 offset=\(self.items.count, privacy: .public) 필터=\(self.hasActiveFilter, privacy: .public)")
+            SynoLog.app.error("타임라인 페이지 실패 offset=\(offset, privacy: .public) 필터=\(self.hasActiveFilter, privacy: .public)")
         }
     }
 
@@ -304,12 +325,15 @@ final class LibraryViewModel {
         primaryID = id
     }
 
+    /// ⇧-click extends from the anchor and REPLACES the previous range, the way
+    /// Finder and Photos behave. `formUnion` only ever grew the selection, so
+    /// re-⇧-clicking a nearer photo left the wider range selected.
     func selectRange(to id: Int) {
         guard let anchor = primaryID,
               let a = items.firstIndex(where: { $0.id == anchor }),
               let b = items.firstIndex(where: { $0.id == id }) else { selectSingle(id); return }
         let range = a <= b ? a...b : b...a
-        selectedIDs.formUnion(items[range].map(\.id))
+        selectedIDs = Set(items[range].map(\.id))
     }
 
     func clearSelection() { selectedIDs = []; primaryID = nil }
@@ -325,25 +349,29 @@ final class LibraryViewModel {
     }
 
     func selectPrevious() {
-        guard let idx = primaryIndex else { selectSingle(items.first?.id ?? -1); return }
+        // An empty grid used to select id -1: nothing matched it, but the UI
+        // then believed something was selected.
+        guard let idx = primaryIndex else {
+            if let first = items.first { selectSingle(first.id) }
+            return
+        }
         if idx > 0 { selectSingle(items[idx - 1].id) }
     }
 
     func selectNext() {
-        guard let idx = primaryIndex else { selectSingle(items.first?.id ?? -1); return }
+        guard let idx = primaryIndex else {
+            if let first = items.first { selectSingle(first.id) }
+            return
+        }
         if idx < items.count - 1 { selectSingle(items[idx + 1].id) }
         if idx >= items.count - 100 { Task { await loadMore() } }
     }
 
     func reload() async {
-        items = []
-        sections = []
-        reachedEnd = false
-        errorMessage = nil
-        clearSelection()
         // Facets/people are space-specific — drop so the panel refetches.
         facets = FotoFilterFacets()
         namedPeople = []
-        await loadInitial()
+        if let count = try? await service.itemCount() { totalCount = count }
+        await runPage(offset: 0, replacing: true)
     }
 }

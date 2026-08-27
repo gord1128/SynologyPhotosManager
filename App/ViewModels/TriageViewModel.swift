@@ -41,12 +41,18 @@ final class TriageViewModel {
     //   `applyCommitted` restore the cursor with a single `decisions.count`.
 
     var current: FotoItem? { items.indices.contains(index) ? items[index] : nil }
-    var deletePendingCount: Int { decisions.values.filter { $0 == .deletePending }.count }
-    var keptCount: Int { decisions.values.filter { $0 == .kept }.count }
+    // Counted incrementally: these are read several times per frame, and a
+    // dictionary scan per read is O(decisions) on the main actor.
+    private(set) var deletePendingCount = 0
+    private(set) var keptCount = 0
     var decidedCount: Int { history.count }
     var canUndo: Bool { !history.isEmpty }
     /// No card left and the server list is exhausted → the pass is complete.
-    var isAtEnd: Bool { current == nil && reachedEnd && !isLoading }
+    /// `!items.isEmpty` matters: an empty library reached the end without the
+    /// user deciding anything, and showing "정리 완료" for that is a lie.
+    var isAtEnd: Bool { current == nil && reachedEnd && !isLoading && !items.isEmpty }
+    /// Nothing to triage at all (as opposed to having finished a pass).
+    var isEmptyLibrary: Bool { items.isEmpty && reachedEnd && !isLoading }
     /// Items flagged for deletion, for the commit step.
     var pendingDeleteItems: [FotoItem] { items.filter { decisions[$0.id] == .deletePending } }
 
@@ -58,6 +64,7 @@ final class TriageViewModel {
     private func loadMore() async {
         guard !isLoading, !reachedEnd else { return }
         isLoading = true
+        errorMessage = nil   // a retry starts clean
         defer { isLoading = false }
         do {
             let next = try await service.items(offset: items.count, limit: pageSize)
@@ -76,6 +83,7 @@ final class TriageViewModel {
     func keep() {
         guard let c = current else { return }
         decisions[c.id] = .kept
+        keptCount += 1
         history.append(c.id)
         advance()
     }
@@ -84,6 +92,7 @@ final class TriageViewModel {
     func markDelete() {
         guard let c = current else { return }
         decisions[c.id] = .deletePending
+        deletePendingCount += 1
         history.append(c.id)
         advance()
     }
@@ -91,6 +100,8 @@ final class TriageViewModel {
     /// Step back one decision (←).
     func undo() {
         guard let last = history.popLast() else { return }
+        if decisions[last] == .kept { keptCount -= 1 }
+        else if decisions[last] == .deletePending { deletePendingCount -= 1 }
         decisions[last] = nil
         if let i = items.firstIndex(where: { $0.id == last }) { index = i }
         else if index > 0 { index -= 1 }
@@ -103,7 +114,11 @@ final class TriageViewModel {
     func applyCommitted(deletedIDs: Set<Int>) {
         guard !deletedIDs.isEmpty, items.contains(where: { deletedIDs.contains($0.id) }) else { return }
         items.removeAll { deletedIDs.contains($0.id) }
-        for id in deletedIDs { decisions[id] = nil }
+        for id in deletedIDs {
+            if decisions[id] == .kept { keptCount -= 1 }
+            else if decisions[id] == .deletePending { deletePendingCount -= 1 }
+            decisions[id] = nil
+        }
         history.removeAll { deletedIDs.contains($0) }
         index = min(decisions.count, items.count)
     }

@@ -99,7 +99,12 @@ struct PhotoGridView: View {
         }
         .dropDestination(for: URL.self) { urls, _ in
             let images = urls.filter { Self.imageExtensions.contains($0.pathExtension.lowercased()) }
-            guard !images.isEmpty else { return false }
+            guard !images.isEmpty else {
+                // Rejecting silently left the user guessing whether the drop
+                // was even seen (folders are the common case).
+                model.showError("사진·동영상 파일만 업로드할 수 있습니다. 폴더는 지원하지 않습니다.")
+                return false
+            }
             Task { await model.upload(images) }
             return true
         } isTargeted: { isDropTargeted = $0 }
@@ -149,8 +154,10 @@ struct PhotoGridView: View {
         let flags = NSEvent.modifierFlags
         if flags.contains(.command) { library.toggle(item.id) }
         else if flags.contains(.shift) { library.selectRange(to: item.id) }
-        else if item.isStack { openStack = item }
+        // Deselect-on-re-click comes BEFORE the stack branch, so a selected
+        // stack behaves like every other selected cell instead of re-opening.
         else if library.selectedIDs == [item.id] { library.clearSelection() }
+        else if item.isStack { openStack = item }
         else { library.selectSingle(item.id) }
     }
 

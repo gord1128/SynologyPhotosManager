@@ -70,7 +70,7 @@ struct SimilarPhotosView: View {
             }
             Button("취소", role: .cancel) { pendingDelete = nil }
         } message: { group in
-            Text("보관으로 표시한 \(group.keptIDs.count)장은 남고, 나머지 \(group.removeCount)장이 영구 삭제됩니다. Synology Photos에는 휴지통이 없어 되돌릴 수 없습니다.")
+            Text("보관으로 표시한 \(group.keptIDs.count)장은 남고, 나머지 \(group.removeCount)장이 영구 삭제됩니다. Synology Photos 안에는 휴지통이 없습니다. NAS 공유 폴더의 휴지통을 켜 두지 않았다면 되돌릴 수 없습니다.")
         }
     }
 }
