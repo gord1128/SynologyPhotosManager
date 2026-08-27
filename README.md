@@ -46,6 +46,26 @@ cleaning up your photos.
 - Headless verification: dependency-free `*Checks` executables
   (`swift run FotoKitChecks`) with stubbed responses; no live NAS needed.
 
+## Design system
+
+`App/DesignSystem.swift` holds every spacing, radius, surface and status colour
+the app uses. Three rules that are easy to break and expensive to find later:
+
+- **Every colour defines both vintages.** Use `Color(light:dark:)`; there is no
+  single-appearance form. A colour defined for one theme renders that theme's
+  ink on the other theme's ground, and nothing warns you.
+- **The accent is the app's, not the system's.** `Assets/AccentColor` (teal,
+  `#0E7C8A` / `#5FC7D6`) is wired through
+  `ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME`, so `Color.accentColor` is
+  the brand colour everywhere. Don't reintroduce `.blue` / `.indigo` / `.teal`
+  literals — there are currently none.
+- **Settings row badges use three colours only**: accent for the user's own
+  data, `DS.systemGray` for system/diagnostics, `DS.warn` for anything needing
+  attention.
+
+Photo-grid gaps stay at 2pt and the justified layout never crops — those two are
+product identity, not defaults.
+
 ## Building
 
 Requires Xcode 16+ and [XcodeGen](https://github.com/yonyz/XcodeGen).
