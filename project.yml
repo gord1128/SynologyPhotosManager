@@ -39,6 +39,7 @@ targets:
         CURRENT_PROJECT_VERSION: "1"
         GENERATE_INFOPLIST_FILE: YES
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
         INFOPLIST_KEY_NSLocalNetworkUsageDescription: "같은 네트워크의 Synology NAS를 자동으로 찾기 위해 로컬 네트워크를 사용합니다."
         INFOPLIST_KEY_LSApplicationCategoryType: "public.app-category.photography"
         INFOPLIST_KEY_NSHumanReadableCopyright: "© 2026 hyeonm9. MIT 라이선스. 제3자 고지는 앱 안 THIRD-PARTY.txt 참조."

@@ -157,7 +157,7 @@ struct ContentView: View {
             SidebarView()
                 .navigationSplitViewColumnWidth(min: 200, ideal: 220, max: 280)
         } detail: {
-            centerPane
+            centerPane.background(DS.content)
         }
         .toolbar {
             // Only offer the 개인/공유 toggle when the shared space is actually
@@ -430,6 +430,8 @@ struct SidebarView: View {
             }
         }
         .listStyle(.sidebar)
+        .scrollContentBackground(.hidden)
+        .background(DS.sidebar)
         .safeAreaInset(edge: .bottom) { ConnectionStatusBar() }
     }
 }
@@ -456,7 +458,7 @@ struct ConnectionStatusBar: View {
             .padding(.horizontal, DS.s3)
             .padding(.vertical, DS.s2)
         }
-        .background(.bar)
+        .background(DS.bar)
     }
 
     /// Host shown as a subtitle only when the primary line is a nickname.
