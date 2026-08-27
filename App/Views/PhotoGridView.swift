@@ -169,7 +169,7 @@ struct PhotoGridView: View {
         }
         .padding(.horizontal, 8).padding(.vertical, 8)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.bar)
+        .background(DS.bar.opacity(0.92))
     }
 
     /// Right-edge year scrubber. Tapping a year jumps the timeline to its first

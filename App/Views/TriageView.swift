@@ -184,7 +184,7 @@ struct TriageView: View {
             }
         }
         .padding(.horizontal, DS.s4).padding(.vertical, DS.s2)
-        .background(.bar)
+        .background(DS.bar)
     }
 
     // MARK: - Action bar

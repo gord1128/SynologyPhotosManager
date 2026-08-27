@@ -26,7 +26,7 @@ struct SettingsIcon: View {
             .font(.system(size: 12, weight: .semibold))
             .foregroundStyle(.white)
             .frame(width: 22, height: 22)
-            .background(tint, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+            .background(tint, in: RoundedRectangle(cornerRadius: 7, style: .continuous))
     }
 }
 
@@ -58,11 +58,11 @@ private struct GeneralSettings: View {
                                     .background(.blue.opacity(0.2), in: Capsule())
                             }
                         }
-                    } label: { rowLabel("사용자", "person.fill", .blue) }
+                    } label: { rowLabel("사용자", "person.fill", .accentColor) }
 
                     if let email = user.profile?.email, !email.isEmpty {
                         LabeledContent { Text(email).foregroundStyle(.secondary) }
-                            label: { rowLabel("이메일", "envelope.fill", .teal) }
+                            label: { rowLabel("이메일", "envelope.fill", .accentColor) }
                     }
                     if let index {
                         LabeledContent {
@@ -71,7 +71,7 @@ private struct GeneralSettings: View {
                         } label: {
                             rowLabel("색인 상태",
                                      index.isComplete ? "checkmark.seal.fill" : "arrow.triangle.2.circlepath",
-                                     index.isComplete ? .green : .orange)
+                                     index.isComplete ? .accentColor : DS.warn)
                         }
                     }
                 }
@@ -80,7 +80,7 @@ private struct GeneralSettings: View {
             Section {
                 Picker(selection: Binding(get: { model.defaultScale }, set: { model.defaultScale = $0 })) {
                     ForEach(TimelineScale.allCases) { Text($0.rawValue).tag($0) }
-                } label: { rowLabel("타임라인 단위", "calendar", .indigo) }
+                } label: { rowLabel("타임라인 단위", "calendar", .accentColor) }
                 .pickerStyle(.menu)
             } header: {
                 Text("기본 보기")
@@ -91,7 +91,7 @@ private struct GeneralSettings: View {
             Section {
                 LabeledContent {
                     Text(cacheSizeLabel).foregroundStyle(.secondary).monospacedDigit()
-                } label: { rowLabel("디스크 사용량", "internaldrive.fill", .gray) }
+                } label: { rowLabel("디스크 사용량", "internaldrive.fill", DS.systemGray) }
 
                 Button {
                     clearing = true
@@ -101,7 +101,7 @@ private struct GeneralSettings: View {
                         clearing = false
                     }
                 } label: {
-                    rowLabel(clearing ? "비우는 중…" : "캐시 비우기", "trash.fill", .red)
+                    rowLabel(clearing ? "비우는 중…" : "캐시 비우기", "trash.fill", DS.systemGray)
                 }
                 .disabled(clearing)
             } header: {
@@ -114,7 +114,7 @@ private struct GeneralSettings: View {
                 LabeledContent {
                     Text(Diagnostics.versionLine)
                         .foregroundStyle(.secondary).monospacedDigit().textSelection(.enabled)
-                } label: { rowLabel("버전", "app.badge", .purple) }
+                } label: { rowLabel("버전", "app.badge", DS.systemGray) }
 
                 Button {
                     do {
@@ -125,11 +125,11 @@ private struct GeneralSettings: View {
                         exportNote = ((error as? LocalizedError)?.errorDescription
                                       ?? error.localizedDescription, true)
                     }
-                } label: { rowLabel("진단 로그 내보내기", "doc.text.magnifyingglass", .brown) }
+                } label: { rowLabel("진단 로그 내보내기", "doc.text.magnifyingglass", DS.systemGray) }
 
                 Button {
                     Diagnostics.openIssueReport()
-                } label: { rowLabel("문제 보고", "exclamationmark.bubble.fill", .pink) }
+                } label: { rowLabel("문제 보고", "exclamationmark.bubble.fill", DS.systemGray) }
 
                 // The bundled notice carries the full Apache-2.0 text for the
                 // icon glyph. Shipping someone else's work means shipping their
@@ -138,7 +138,7 @@ private struct GeneralSettings: View {
                 if let notice = Bundle.main.url(forResource: "THIRD-PARTY", withExtension: "txt") {
                     Button {
                         NSWorkspace.shared.open(notice)
-                    } label: { rowLabel("제3자 라이선스 고지", "doc.text", .gray) }
+                    } label: { rowLabel("제3자 라이선스 고지", "doc.text", DS.systemGray) }
                 }
 
                 if let exportNote {
