@@ -19,6 +19,12 @@ struct DetailGridView: View {
     var body: some View {
         ZStack {
             content
+            // Same panel the timeline shows. Without it, clicking a photo in an
+            // album did nothing visible while the identical click on the
+            // timeline opened the inspector.
+            if let item = grid.selectedItem, !showingPreview {
+                PhotoInspectorPanel(item: item, loader: grid.thumbnailLoader) { grid.clearSelection() }
+            }
             if showingPreview, let item = grid.selectedItem {
                 PhotoPreviewView(
                     item: item, loader: grid.thumbnailLoader,
@@ -30,6 +36,7 @@ struct DetailGridView: View {
             }
         }
         .animation(.easeInOut(duration: 0.15), value: showingPreview)
+        .animation(.easeInOut(duration: 0.22), value: grid.selectedItem?.id)
         .focusable()
         .focusEffectDisabled()
         .onKeyPress(.space) {

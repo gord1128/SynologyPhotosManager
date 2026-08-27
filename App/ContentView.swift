@@ -70,33 +70,12 @@ struct ContentView: View {
         }
     }
 
-    /// Info panel that appears only when a single photo is selected. Like Apple
-    /// Photos' floating info window, it slides in over the trailing edge WITHOUT
-    /// pushing/reflowing the grid (so thumbnails don't jump), and closing it
-    /// deselects. Hidden while the full-screen preview is up.
+    /// Info panel for the timeline / folder grids. Album, person, stack and
+    /// map-cluster grids get the same panel from inside `DetailGridView`.
     @ViewBuilder
     private var infoPanel: some View {
         if let item = activeItem, !showingPreview {
-            HStack(spacing: 0) {
-                Spacer(minLength: 0)
-                PhotoInspectorView(item: item, loader: activeLoader)
-                    .frame(width: 320)
-                    .background(.regularMaterial)
-                    .overlay(alignment: .topTrailing) {
-                        Button { activeClearSelection() } label: {
-                            Image(systemName: "xmark")
-                                .font(.callout.weight(.semibold))
-                                .foregroundStyle(.secondary)
-                                .padding(6)
-                        }
-                        .buttonStyle(.plain)
-                        .help("정보 닫기")
-                        .padding(8)
-                    }
-                    .overlay(alignment: .leading) { Divider() }
-                    .shadow(color: .black.opacity(0.18), radius: 10, x: -3)
-            }
-            .transition(.move(edge: .trailing))
+            PhotoInspectorPanel(item: item, loader: activeLoader) { activeClearSelection() }
         }
     }
 
