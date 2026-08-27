@@ -37,8 +37,12 @@ cleaning up your photos.
 - **FotoKit** (`FotoKit/`, local SPM package) — Synology Photos models + the
   `SYNO.Foto.*` service layer.
 - **SynoKit** — shared transport/security core (TLS pinning, credential store,
-  session handling). ⚠️ **Not included in this repo** — it's a sibling Swift
-  package expected at `../SynoKit`. Without it the project will not build as-is.
+  session handling). Not vendored here: it's a sibling Swift package this project
+  expects at `../SynoKit`, shared with SynologyMonitor. Clone it beside this
+  repo before building:
+  ```
+  git clone https://github.com/gord1128/SynoKit.git ../SynoKit
+  ```
 - Headless verification: dependency-free `*Checks` executables
   (`swift run FotoKitChecks`) with stubbed responses; no live NAS needed.
 

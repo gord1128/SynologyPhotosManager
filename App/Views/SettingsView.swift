@@ -131,6 +131,16 @@ private struct GeneralSettings: View {
                     Diagnostics.openIssueReport()
                 } label: { rowLabel("문제 보고", "exclamationmark.bubble.fill", .pink) }
 
+                // The bundled notice carries the full Apache-2.0 text for the
+                // icon glyph. Shipping someone else's work means shipping their
+                // license where the user can reach it — not only in a README on
+                // GitHub that the user never sees.
+                if let notice = Bundle.main.url(forResource: "THIRD-PARTY", withExtension: "txt") {
+                    Button {
+                        NSWorkspace.shared.open(notice)
+                    } label: { rowLabel("제3자 라이선스 고지", "doc.text", .gray) }
+                }
+
                 if let exportNote {
                     Label(exportNote.text, systemImage: exportNote.isError
                           ? "exclamationmark.triangle" : "checkmark.circle")

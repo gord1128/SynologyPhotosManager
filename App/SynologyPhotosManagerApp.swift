@@ -2,8 +2,10 @@ import SwiftUI
 import AppKit
 import SynoKit
 
+#if SMOKE
 /// Dev-only: when PHOTOS_SMOKE_OUT is set, renders a real grid PNG then exits.
 /// `applicationDidFinishLaunching` fires whether or not a window is shown.
+/// Debug builds only — see project.yml.
 final class SmokeAppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         let env = ProcessInfo.processInfo.environment
@@ -56,10 +58,13 @@ final class SmokeAppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 }
+#endif
 
 @main
 struct SynologyPhotosManagerApp: App {
+    #if SMOKE
     @NSApplicationDelegateAdaptor(SmokeAppDelegate.self) private var delegate
+    #endif
     @State private var model: AppModel
 
     init() {

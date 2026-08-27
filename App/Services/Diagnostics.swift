@@ -28,8 +28,25 @@ enum Diagnostics {
         Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "?"
     }
 
-    /// "0.1.0 (137)" — the one string a bug report can't do without.
-    static var versionLine: String { "\(version) (\(build))" }
+    /// Short commit hash of the tree this build came from, stamped into the
+    /// bundle by `Tools/release.sh`. Absent in local Xcode builds.
+    static var commit: String? {
+        Bundle.main.object(forInfoDictionaryKey: "SPMCommit") as? String
+    }
+
+    /// SynoKit is a sibling package, not vendored, so a build is only fully
+    /// identified by both hashes.
+    static var synoKitCommit: String? {
+        Bundle.main.object(forInfoDictionaryKey: "SPMSynoKitCommit") as? String
+    }
+
+    /// "0.1.0 (137 · a1b2c3d)" — the one string a bug report can't do without.
+    /// A hand-typed version number is wrong often enough to be useless; the
+    /// commit makes it exact.
+    static var versionLine: String {
+        guard let commit else { return "\(version) (\(build))" }
+        return "\(version) (\(build) · \(commit))"
+    }
 
     static var systemLine: String {
         let os = ProcessInfo.processInfo.operatingSystemVersion
@@ -150,7 +167,7 @@ enum Diagnostics {
 
 
         ---
-        - 앱: \(versionLine)
+        - 앱: \(versionLine)\(synoKitCommit.map { " · SynoKit \($0)" } ?? "")
         - 환경: \(systemLine)
         - 진단 로그: 설정 › 일반 › 「진단 로그 내보내기」로 저장한 파일을 첨부해 주시면 큰 도움이 됩니다.
         """

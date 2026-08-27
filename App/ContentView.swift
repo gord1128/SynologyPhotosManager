@@ -195,14 +195,16 @@ struct ContentView: View {
                 memories = MemoriesViewModel(service: service)
                 mapVM = MapViewModel(service: service)
                 await lib.loadInitial()
+                #if SMOKE
                 // Dev hook: pre-select the first item so the inspector can be
                 // screenshotted headlessly. Read from UserDefaults (set via
                 // `defaults write`) — survives an `open` launch, unlike env vars,
-                // and needs no Accessibility permission.
+                // and needs no Accessibility permission. Debug builds only.
                 if UserDefaults.standard.bool(forKey: "PHOTOS_AUTOSELECT"),
                    let first = lib.items.first(where: { !$0.isStack }) ?? lib.items.first {
                     lib.selectSingle(first.id)
                 }
+                #endif
             } else {
                 library = nil
                 folders = nil

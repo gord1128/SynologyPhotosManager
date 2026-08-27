@@ -1,3 +1,9 @@
+// 개발 전용 — Debug 빌드에만 컴파일된다(project.yml의 `SMOKE`).
+//
+// 이 하네스는 저장된 NAS 자격증명을 읽고, 화면을 그리고, exit()를 호출한다.
+// 남이 설치하는 빌드에 들어갈 이유가 없다 — 900줄의 코드이자 그만큼의 공격면인데
+// 사용자에게 주는 값은 0이다.
+#if SMOKE
 import SwiftUI
 import AppKit
 import AVFoundation
@@ -859,3 +865,5 @@ private struct SmokeGrid: View {
         .background(Color(nsColor: .windowBackgroundColor))
     }
 }
+
+#endif
