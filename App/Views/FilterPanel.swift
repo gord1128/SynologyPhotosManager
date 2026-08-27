@@ -96,7 +96,9 @@ struct FilterPanel: View {
         }
     }
 
-    private func apply() { Task { await library.applyFilters() } }
+    /// Debounced: a filter panel is edited in bursts (tick, tick, tick), and
+    /// each tick used to cost a full re-query.
+    private func apply() { library.scheduleApplyFilters() }
 
     private var hasExifFacets: Bool {
         !(library.facets.camera.isEmpty && library.facets.lens.isEmpty && library.facets.iso.isEmpty && library.facets.aperture.isEmpty)

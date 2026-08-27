@@ -76,7 +76,24 @@ final class LibraryViewModel {
 
     /// Re-runs the timeline with the current filters (called when a filter changes).
     func applyFilters() async {
+        filterDebounce?.cancel()
+        filterDebounce = nil
         await runPage(offset: 0, replacing: true)
+    }
+
+    private var filterDebounce: Task<Void, Never>?
+
+    /// Coalesces a burst of filter edits into ONE query. Every checkbox, toggle
+    /// and date-picker tick used to fire a full re-query, so ticking five
+    /// people meant five round-trips to the NAS — and dragging a date picker
+    /// fired continuously.
+    func scheduleApplyFilters() {
+        filterDebounce?.cancel()
+        filterDebounce = Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(300))
+            guard !Task.isCancelled else { return }
+            await self?.applyFilters()
+        }
     }
 
     func clearAllFilters() {

@@ -52,6 +52,11 @@ struct ThumbnailCell: View {
             RoundedRectangle(cornerRadius: DS.rThumb, style: .continuous)
                 .strokeBorder(Color.accentColor, lineWidth: isSelected ? 2.5 : 0)
         }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(
+            item.type == .video
+                ? "\(item.filename), 동영상\(item.videoDurationLabel.map { " " + $0 } ?? "")"
+                : item.filename)
         .task(id: item.id) {
             failed = false
             image = await loader.image(for: item, size: .m)

@@ -57,6 +57,22 @@ struct SelectablePhotoCell: View {
             .zIndex(isHovering ? 1 : 0)
             .animation(.easeOut(duration: 0.15), value: isHovering)
             .onHover { isHovering = $0 }
+            // The badges (하트 / 묶음 / 재생시간) are decorative restatements of
+            // the label below, and the heart is a HOVER-only control — with no
+            // pointer there was no way to reach any of it. One label, plus
+            // actions that don't need hover.
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(voiceOverLabel)
+            .accessibilityValue(isSelected ? "선택됨" : "")
+            .accessibilityAddTraits(.isButton)
+            .accessibilityAction { onClick() }
+            .accessibilityAction(named: item.isStack ? "묶음 열기" : "크게 보기") { onDoubleClick() }
+            .accessibilityAction(named: model.isFavorite(item) ? "즐겨찾기 해제" : "즐겨찾기") {
+                Task { await model.toggleFavorite([item]) }
+            }
+            .accessibilityAction(named: "원본 다운로드") {
+                Task { await model.downloadItems(targets()) }
+            }
             .onTapGesture(count: 2, perform: onDoubleClick)
             .onTapGesture(perform: onClick)
             .task { await onAppear() }
@@ -113,6 +129,20 @@ struct SelectablePhotoCell: View {
             } message: {
                 Text("Synology Photos 안에는 휴지통이 없습니다. NAS 공유 폴더의 휴지통을 켜 두지 않았다면 되돌릴 수 없습니다.")
             }
+    }
+
+    /// One sentence per cell: what it is, when it was taken, and the state its
+    /// badges show visually.
+    private var voiceOverLabel: String {
+        var parts = [item.filename, item.takenAt.formatted(date: .abbreviated, time: .omitted)]
+        if item.type == .video {
+            parts.append(item.videoDurationLabel.map { "동영상 \($0)" } ?? "동영상")
+        }
+        if item.isStack { parts.append("비슷한 사진 \(item.stackCount)장 묶음") }
+        if model.isFavorite(item) { parts.append("즐겨찾기") }
+        let stars = model.rating(item)
+        if stars > 0 { parts.append("별점 \(stars)") }
+        return parts.joined(separator: ", ")
     }
 
     /// Soft top+bottom darkening so the white selection/heart controls read over

@@ -12,11 +12,16 @@ struct MapView: View {
     @State private var position: MapCameraPosition = .automatic
     @State private var visibleRegion: MKCoordinateRegion?
     @State private var selection: ClusterSelection?
+    /// Clustering is O(photos) — up to 20,000 — so it is CACHED here and
+    /// recomputed only when the viewport or the loaded set actually changes.
+    /// As a computed property it re-bucketed the whole library on every single
+    /// body evaluation, on the main actor.
+    @State private var shownClusters: [MapCluster] = []
 
     var body: some View {
         ZStack {
             Map(position: $position) {
-                ForEach(displayClusters) { cluster in
+                ForEach(shownClusters) { cluster in
                     Annotation("", coordinate: cluster.coordinate) {
                         clusterBadge(cluster)
                     }
@@ -24,6 +29,7 @@ struct MapView: View {
             }
             .onMapCameraChange(frequency: .onEnd) { context in
                 visibleRegion = context.region
+                shownClusters = clusters(in: context.region)
             }
 
             if vm.geoItems.isEmpty {
@@ -53,6 +59,11 @@ struct MapView: View {
         .task {
             await vm.loadIfNeeded()
             if !vm.geoItems.isEmpty { position = .region(boundingRegion) }
+            shownClusters = clusters(in: visibleRegion ?? boundingRegion)
+        }
+        // "더 불러오기" grows the set — re-bucket once, not per frame.
+        .onChange(of: vm.geoItems.count) {
+            shownClusters = clusters(in: visibleRegion ?? boundingRegion)
         }
         .sheet(item: $selection) { sel in
             MapClusterGrid(items: sel.items, loader: vm.thumbnailLoader)
@@ -92,10 +103,6 @@ struct MapView: View {
 
     // MARK: - Clustering (grid buckets sized to the visible span)
 
-    private var displayClusters: [MapCluster] {
-        clusters(in: visibleRegion ?? boundingRegion)
-    }
-
     private func clusters(in region: MKCoordinateRegion) -> [MapCluster] {
         let items = vm.geoItems
         guard !items.isEmpty else { return [] }
@@ -103,11 +110,13 @@ struct MapView: View {
         let latStep = max(region.span.latitudeDelta / 10, 0.00005)
         let lonStep = max(region.span.longitudeDelta / 10, 0.00005)
 
-        var buckets: [String: [MapViewModel.GeoItem]] = [:]
+        // Bucket key packs row/col into one Int instead of building a String
+        // per photo — 20,000 string allocations per pass was most of the cost.
+        var buckets: [Int: [MapViewModel.GeoItem]] = [:]
         for g in items {
             let row = Int((g.latitude / latStep).rounded(.down))
             let col = Int((g.longitude / lonStep).rounded(.down))
-            buckets["\(row)_\(col)", default: []].append(g)
+            buckets[row &* 1_000_003 &+ col, default: []].append(g)
         }
         return buckets.map { key, group in
             let lat = group.reduce(0) { $0 + $1.latitude } / Double(group.count)
@@ -140,7 +149,7 @@ struct MapView: View {
 
 /// One map cluster: a representative coordinate + the photos it holds.
 private struct MapCluster: Identifiable {
-    let id: String
+    let id: Int
     let coordinate: CLLocationCoordinate2D
     let items: [FotoItem]
     var count: Int { items.count }
