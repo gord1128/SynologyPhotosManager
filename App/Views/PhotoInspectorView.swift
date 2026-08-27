@@ -3,6 +3,44 @@ import AppKit
 import MapKit
 import FotoKit
 
+/// The floating info panel: `PhotoInspectorView` docked to the trailing edge.
+///
+/// Extracted from ContentView so EVERY photo grid can show it. Previously only
+/// the timeline and the folder browser did, so selecting a photo inside an
+/// album, a person, a stack or a map cluster silently did nothing — the same
+/// click, two different behaviours.
+///
+/// It OVERLAYS rather than pushing the grid aside (plan §11): reflowing the
+/// grid on selection makes every thumbnail jump.
+struct PhotoInspectorPanel: View {
+    let item: FotoItem
+    let loader: ThumbnailLoader?
+    let onClose: () -> Void
+
+    var body: some View {
+        HStack(spacing: 0) {
+            Spacer(minLength: 0)
+            PhotoInspectorView(item: item, loader: loader)
+                .frame(width: 320)
+                .background(.regularMaterial)
+                .overlay(alignment: .topTrailing) {
+                    Button(action: onClose) {
+                        Image(systemName: "xmark")
+                            .font(.callout.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                            .padding(6)
+                    }
+                    .buttonStyle(.plain)
+                    .help("정보 닫기")
+                    .padding(8)
+                }
+                .overlay(alignment: .leading) { Divider() }
+                .shadow(color: .black.opacity(0.18), radius: 10, x: -3)
+        }
+        .transition(.move(edge: .trailing))
+    }
+}
+
 /// Right-pane inspector: preview + EXIF / resolution / location for the
 /// selected item. Preview uses the larger `xl` thumbnail via the shared loader.
 struct PhotoInspectorView: View {
