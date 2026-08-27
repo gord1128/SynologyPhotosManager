@@ -40,6 +40,7 @@ final class ItemGridViewModel {
     func loadMore() async {
         guard !isLoading, !reachedEnd else { return }
         isLoading = true
+        errorMessage = nil   // a retry starts clean; a stale banner outlived its failure
         defer { isLoading = false }
         do {
             let next = try await fetchPage(items.count, pageSize)
@@ -83,7 +84,7 @@ final class ItemGridViewModel {
               let a = items.firstIndex(where: { $0.id == anchor }),
               let b = items.firstIndex(where: { $0.id == id }) else { selectSingle(id); return }
         let range = a <= b ? a...b : b...a
-        selectedIDs.formUnion(items[range].map(\.id))
+        selectedIDs = Set(items[range].map(\.id))
     }
 
     func clearSelection() { selectedIDs = []; primaryID = nil }
@@ -94,12 +95,18 @@ final class ItemGridViewModel {
     }
 
     func selectPrevious() {
-        guard let idx = primaryIndex else { selectSingle(items.first?.id ?? -1); return }
+        guard let idx = primaryIndex else {
+            if let first = items.first { selectSingle(first.id) }
+            return
+        }
         if idx > 0 { selectSingle(items[idx - 1].id) }
     }
 
     func selectNext() {
-        guard let idx = primaryIndex else { selectSingle(items.first?.id ?? -1); return }
+        guard let idx = primaryIndex else {
+            if let first = items.first { selectSingle(first.id) }
+            return
+        }
         if idx < items.count - 1 { selectSingle(items[idx + 1].id) }
         if idx >= items.count - 60 { Task { await loadMore() } }
     }

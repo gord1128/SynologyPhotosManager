@@ -7,8 +7,13 @@ struct AppCommands: Commands {
     @Bindable var model: AppModel
 
     var body: some Commands {
-        // File → 업로드 / 다운로드 / 삭제
-        CommandGroup(after: .newItem) {
+        // File → 업로드 / 다운로드 / 삭제.
+        // `replacing:` (not `after:`) deliberately removes SwiftUI's default
+        // 파일 ▸ 새 창 (⌘N): every window shares one AppModel, so a second
+        // window mirrors the first's sidebar selection and pops the same
+        // sheets twice, while keeping its own selection. Until the model is
+        // split per-window, one window is the only coherent state.
+        CommandGroup(replacing: .newItem) {
             Button("업로드…") { Task { await model.pickAndUpload() } }
                 .keyboardShortcut("u", modifiers: .command)
                 .disabled(model.fotoService == nil || model.isUploading)

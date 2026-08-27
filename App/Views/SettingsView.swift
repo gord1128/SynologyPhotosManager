@@ -169,6 +169,9 @@ private struct GeneralSettings: View {
 
 private struct ConnectionSettings: View {
     @Environment(AppModel.self) private var model
+    /// Removing a connection also drops its stored password, so it gets a
+    /// confirmation like any other irreversible action.
+    @State private var pendingRemoval: NASConnection?
 
     var body: some View {
         Form {
@@ -188,7 +191,7 @@ private struct ConnectionSettings: View {
                                         .controlSize(.small)
                                 }
                                 Button(role: .destructive) {
-                                    Task { await model.removeConnection(connection) }
+                                    pendingRemoval = connection
                                 } label: { Image(systemName: "trash") }
                                 .buttonStyle(.borderless)
                                 .help("이 연결 삭제")
@@ -220,6 +223,20 @@ private struct ConnectionSettings: View {
             }
         }
         .formStyle(.grouped)
+        .confirmationDialog(
+            "이 연결을 삭제할까요?",
+            isPresented: Binding(get: { pendingRemoval != nil }, set: { if !$0 { pendingRemoval = nil } }),
+            presenting: pendingRemoval
+        ) { connection in
+            Button("삭제", role: .destructive) {
+                let c = connection
+                pendingRemoval = nil
+                Task { await model.removeConnection(c) }
+            }
+            Button("취소", role: .cancel) { pendingRemoval = nil }
+        } message: { connection in
+            Text("'\(connection.nickname ?? connection.host)'의 저장된 비밀번호도 함께 지워집니다. NAS의 사진은 그대로 있습니다.")
+        }
     }
 
     private func isActive(_ connection: NASConnection) -> Bool {

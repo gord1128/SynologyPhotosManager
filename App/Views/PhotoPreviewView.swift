@@ -24,6 +24,9 @@ struct PhotoPreviewView: View {
     /// (photos only). Falls back to the `xl` thumbnail until then.
     @State private var originalImage: NSImage?
     @State private var isLoadingOriginal = false
+    /// The last original fetch failed. Shown on the zoom badge; zooming back
+    /// out and in retries (previously it stayed soft forever, silently).
+    @State private var originalFailed = false
     /// Auto-hiding chrome (title bar + nav arrows) like a real photo viewer.
     @State private var chromeVisible = true
     @State private var hideTask: Task<Void, Never>?
@@ -106,6 +109,7 @@ struct PhotoPreviewView: View {
                 ZoomableImageView(
                     image: originalImage ?? image,
                     isOriginal: originalImage != nil,
+                    failed: originalFailed,
                     onZoomIn: { Task { await loadOriginalIfNeeded() } }
                 )
                 .id(item.id)
@@ -146,6 +150,7 @@ struct PhotoPreviewView: View {
         image = nil
         originalImage = nil
         isLoadingOriginal = false
+        originalFailed = false
         image = await loader.image(for: item, size: .xl)
         if item.type == .video { await prepareVideo() }
     }
@@ -156,12 +161,16 @@ struct PhotoPreviewView: View {
         guard item.type == .photo, originalImage == nil, !isLoadingOriginal,
               let service = model.fotoService else { return }
         isLoadingOriginal = true
+        originalFailed = false
         defer { isLoadingOriginal = false }
         // Stream the original to a temp file and decode it with ImageIO, so the
         // encoded original never sits in memory as a Data buffer (large photos).
         let tmp = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: tmp) }
-        guard (try? await service.downloadOriginal(itemIds: [item.id], to: tmp)) != nil else { return }
+        guard (try? await service.downloadOriginal(itemIds: [item.id], to: tmp)) != nil else {
+            originalFailed = true
+            return
+        }
 
         // Cap the decode at roughly twice the widest screen instead of decoding
         // at full size. A 61 MP photo decodes to a ~240 MB bitmap that no
@@ -181,7 +190,10 @@ struct PhotoPreviewView: View {
                   ] as CFDictionary) else { return nil }
             return NSImage(cgImage: cg, size: NSSize(width: cg.width, height: cg.height))
         }.value
-        guard let decoded, !Task.isCancelled else { return }
+        guard let decoded, !Task.isCancelled else {
+            if !Task.isCancelled { originalFailed = true }
+            return
+        }
         originalImage = decoded
     }
 
@@ -252,6 +264,7 @@ struct PhotoPreviewView: View {
 private struct ZoomableImageView: View {
     let image: NSImage
     let isOriginal: Bool
+    let failed: Bool
     let onZoomIn: () -> Void
 
     @State private var scale: CGFloat = 1
@@ -287,7 +300,11 @@ private struct ZoomableImageView: View {
             }
             .onEnded { _ in
                 steadyScale = scale
-                if scale <= minScale { resetPan() }
+                if scale <= minScale {
+                    resetPan()
+                    // Back at 1× — let the next zoom-in try the original again.
+                    didRequestOriginal = false
+                }
                 steadyOffset = offset
             }
     }
@@ -305,6 +322,7 @@ private struct ZoomableImageView: View {
     private func toggleZoom() {
         if scale > minScale {
             scale = minScale; steadyScale = minScale; resetPan()
+            didRequestOriginal = false
         } else {
             scale = 2.5; steadyScale = 2.5; requestOriginalIfZoomed()
         }
@@ -316,13 +334,19 @@ private struct ZoomableImageView: View {
         onZoomIn()
     }
 
+    private var badgeText: String {
+        if isOriginal { return String(format: "%.0f%% · 원본", scale * 100) }
+        if failed { return String(format: "%.0f%% · 원본을 불러오지 못했습니다", scale * 100) }
+        return String(format: "%.0f%%", scale * 100)
+    }
+
     private func resetPan() { offset = .zero; steadyOffset = .zero }
     private func clampedScale(_ s: CGFloat) -> CGFloat { min(max(s, minScale), maxScale) }
 
     @ViewBuilder
     private var zoomBadge: some View {
         if scale > minScale {
-            Text(isOriginal ? String(format: "%.0f%% · 원본", scale * 100) : String(format: "%.0f%%", scale * 100))
+            Text(badgeText)
                 .font(.caption).monospacedDigit()
                 .foregroundStyle(.white)
                 .padding(.horizontal, 10).padding(.vertical, 4)

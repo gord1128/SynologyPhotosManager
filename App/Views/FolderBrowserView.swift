@@ -49,6 +49,16 @@ struct FolderBrowserView: View {
         if model.subfolders.isEmpty && model.items.isEmpty {
             if model.isLoading {
                 ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if let error = model.errorMessage {
+                // A dropped page used to render as "빈 폴더" — the same screen
+                // an actually-empty folder shows.
+                ContentUnavailableView {
+                    Label("폴더를 불러오지 못했습니다", systemImage: "exclamationmark.triangle")
+                } description: {
+                    Text(error)
+                } actions: {
+                    Button("다시 시도") { Task { await model.reload() } }
+                }
             } else {
                 ContentUnavailableView("빈 폴더", systemImage: "folder")
             }

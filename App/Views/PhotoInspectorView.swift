@@ -79,7 +79,7 @@ struct PhotoInspectorView: View {
                         Button("삭제", role: .destructive) { Task { await model.deleteItem(item) } }
                         Button("취소", role: .cancel) {}
                     } message: {
-                        Text("Synology Photos에는 휴지통이 없어 복구할 수 없습니다.")
+                        Text("Synology Photos 안에는 휴지통이 없습니다. NAS 공유 폴더의 휴지통을 켜 두지 않았다면 되돌릴 수 없습니다.")
                     }
                 }
                 .padding(DS.s4)
