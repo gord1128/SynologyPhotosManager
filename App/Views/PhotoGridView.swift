@@ -194,10 +194,13 @@ struct PhotoGridView: View {
                             .font(.caption2)
                             .monospacedDigit()
                             .foregroundStyle(.secondary)
-                            .padding(.horizontal, 6).padding(.vertical, 2)
+                            // Was 6×2 padding — roughly a 10×20pt target.
+                            .padding(.horizontal, 8).padding(.vertical, 5)
+                            .frame(minWidth: 40, minHeight: 24)
                             .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
+                    .accessibilityLabel("\(year)년으로 이동")
                 }
             }
             .padding(.vertical, 8).padding(.horizontal, 3)
