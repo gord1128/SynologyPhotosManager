@@ -41,6 +41,54 @@ final class LibraryViewModel {
     /// Top-level countries for the place filter.
     var countries: [FotoPlace] { facets.geocoding }
 
+    /// One removable condition, for the chip row at the top of the filter panel.
+    ///
+    /// The panel keeps most facets inside collapsed disclosure groups, so the
+    /// only way to see what was actually applied was to open every group one by
+    /// one. These say it in a line, and each one can be lifted from here.
+    struct FilterChip: Identifiable {
+        let id: String
+        let label: String
+        let clear: () -> Void
+    }
+
+    var activeFilterChips: [FilterChip] {
+        var chips: [FilterChip] = []
+        if typeFilter != .all {
+            chips.append(FilterChip(id: "type", label: "\(typeFilter.rawValue)만") { [weak self] in
+                self?.typeFilter = .all
+            })
+        }
+        if favoriteOnly {
+            chips.append(FilterChip(id: "fav", label: "즐겨찾기") { [weak self] in
+                self?.favoriteOnly = false
+            })
+        }
+        if dateFilterActive {
+            let f = Date.FormatStyle(date: .numeric, time: .omitted)
+            chips.append(FilterChip(id: "date",
+                                    label: "\(startDate.formatted(f)) → \(endDate.formatted(f))") { [weak self] in
+                self?.dateFilterActive = false
+            })
+        }
+        func facetChip(_ id: String, _ name: String, _ count: Int, _ clear: @escaping () -> Void) {
+            guard count > 0 else { return }
+            chips.append(FilterChip(id: id, label: "\(name) \(count)", clear: clear))
+        }
+        facetChip("people", "사람", selectedPersonIds.count) { [weak self] in self?.selectedPersonIds = [] }
+        facetChip("place", "장소", selectedCountryIds.count) { [weak self] in self?.selectedCountryIds = [] }
+        facetChip("camera", "카메라", selectedCameraIds.count) { [weak self] in self?.selectedCameraIds = [] }
+        facetChip("lens", "렌즈", selectedLensIds.count) { [weak self] in self?.selectedLensIds = [] }
+        facetChip("iso", "ISO", selectedIsoIds.count) { [weak self] in self?.selectedIsoIds = [] }
+        facetChip("aperture", "조리개", selectedApertureIds.count) { [weak self] in self?.selectedApertureIds = [] }
+        return chips
+    }
+
+    /// Whether more pages remain — the match count below the panel is a lower
+    /// bound until the timeline is fully paged, and says so rather than
+    /// implying a total the server never gave us.
+    var hasMorePages: Bool { !reachedEnd }
+
     var hasActiveFilter: Bool {
         typeFilter != .all || favoriteOnly || dateFilterActive || !selectedPersonIds.isEmpty
             || !selectedCountryIds.isEmpty || !selectedCameraIds.isEmpty

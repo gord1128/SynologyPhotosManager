@@ -211,15 +211,69 @@ final class AppModel {
             let transient = Self.isTransientNetworkError(error)
             lastFailureWasTransient = transient
             SynoLog.app.error("연결 실패 (재시도 소진) transient=\(transient, privacy: .public) \(String(describing: error), privacy: .private)")
-            // A transport failure on a build that has never connected, when an
-            // older build had: the retries above already ruled out a warmup
-            // blip, so this is the Local Network grant, not the network.
-            if transient, buildChangedSinceLastSuccess {
+            // Two independent tells, either of which means the GRANT is gone
+            // rather than the network:
+            //
+            //  · the build changed since the last success (the app was
+            //    replaced), or
+            //  · URLSession reports "offline" while NWPathMonitor says the path
+            //    is satisfied — a contradiction only the Local Network gate
+            //    produces. This one matters because replacing the app does NOT
+            //    always change CFBundleVersion (two builds of the same version
+            //    have different signatures but the same number), and the
+            //    build-number test alone then shows the generic failure pane
+            //    with a raw "인터넷 연결이 오프라인" that sends the user off to
+            //    check their router.
+            let looksLikeLostGrant = buildChangedSinceLastSuccess
+                || (Self.isOfflineError(error) && pathIsSatisfied)
+            if transient, looksLikeLostGrant {
                 needsLocalNetworkReset = true
                 SynoLog.app.error("업데이트 후 첫 연결이 전송 오류 — 로컬 네트워크 권한 재동기화 안내 표시")
             }
-            connectionState = .failed((error as? LocalizedError)?.errorDescription ?? error.localizedDescription)
+            connectionState = .failed(Self.connectFailureMessage(error))
         }
+    }
+
+    /// A failure message a person can act on.
+    ///
+    /// `URLError.localizedDescription` is written for developers and is not
+    /// localized here — "The Internet connection appears to be offline." was
+    /// reaching the user verbatim, in English, on a Korean-only screen, and it
+    /// named the wrong cause besides.
+    private static func connectFailureMessage(_ error: Error) -> String {
+        let urlError: URLError?
+        if case let SynologyAPIError.hostUnreachable(underlying) = error {
+            urlError = underlying as? URLError
+        } else {
+            urlError = error as? URLError
+        }
+        switch urlError?.code {
+        case .notConnectedToInternet:
+            return "NAS에 닿지 못했습니다. 같은 네트워크에 있는지, 이 앱의 로컬 네트워크 권한이 켜져 있는지 확인해 주세요."
+        case .timedOut:
+            return "NAS가 제때 응답하지 않았습니다. 주소와 포트를 확인하거나 잠시 뒤 다시 시도해 주세요."
+        case .cannotFindHost, .dnsLookupFailed:
+            return "주소를 찾지 못했습니다. NAS 주소를 확인해 주세요."
+        case .cannotConnectToHost:
+            return "NAS가 연결을 받지 않았습니다. 포트 번호와 DSM이 켜져 있는지 확인해 주세요."
+        case .networkConnectionLost:
+            return "연결이 끊어졌습니다. 네트워크를 확인하고 다시 연결해 주세요."
+        default:
+            return (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+        }
+    }
+
+    /// Specifically "the device has no internet", as opposed to a timeout or a
+    /// refused connection. On a LAN address this is what a missing Local
+    /// Network grant looks like from URLSession's side.
+    private static func isOfflineError(_ error: Error) -> Bool {
+        let urlError: URLError?
+        if case let SynologyAPIError.hostUnreachable(underlying) = error {
+            urlError = underlying as? URLError
+        } else {
+            urlError = error as? URLError
+        }
+        return urlError?.code == .notConnectedToInternet
     }
 
     /// Whether an error is a transient connectivity blip worth retrying (offline,

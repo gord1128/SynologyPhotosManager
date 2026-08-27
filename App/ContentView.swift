@@ -118,16 +118,22 @@ struct ContentView: View {
         }
     }
 
-    /// Top banner for errors (persist until dismissed) and brief confirmations
+    /// Banner for errors (persist until dismissed) and brief confirmations
     /// (auto-clear). Fed by `AppModel.showError/showInfo`.
+    ///
+    /// It rides directly ABOVE the bottom chrome bar, at the same width, so the
+    /// screen has one floating stack instead of a banner at the top and a bar
+    /// at the bottom arguing over the user's attention (design handoff §1a).
     @ViewBuilder
     private var noticeBanner: some View {
         if let notice = model.notice {
             VStack {
+                Spacer()
                 HStack(spacing: 8) {
                     Image(systemName: notice.kind == .error ? "exclamationmark.triangle.fill" : "checkmark.circle.fill")
-                        .foregroundStyle(notice.kind == .error ? .red : .green)
+                        .foregroundStyle(notice.kind == .error ? DS.danger : DS.ok)
                     Text(notice.message).font(.callout).lineLimit(2)
+                    Spacer(minLength: 0)
                     Button {
                         model.notice = nil
                     } label: {
@@ -135,14 +141,31 @@ struct ContentView: View {
                     }
                     .buttonStyle(.plain)
                 }
-                .padding(.horizontal, 14).padding(.vertical, 8)
-                .dsFloating()
-                .padding(.top, 8)
-                Spacer()
+                .padding(.horizontal, 14).padding(.vertical, 9)
+                .frame(width: ChromeBar<EmptyView>.width)
+                .background(.ultraThinMaterial,
+                            in: RoundedRectangle(cornerRadius: DS.rPopover, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: DS.rPopover, style: .continuous)
+                        .strokeBorder(
+                            LinearGradient(colors: [.white.opacity(0.45), DS.hairline],
+                                           startPoint: .top, endPoint: .bottom),
+                            lineWidth: 1)
+                )
+                .shadow(color: .black.opacity(0.18), radius: 6, y: 2)
+                .padding(.bottom, bannerBottomInset)
             }
-            .transition(.move(edge: .top).combined(with: .opacity))
+            .transition(.move(edge: .bottom).combined(with: .opacity))
             .animation(.easeInOut(duration: 0.2), value: model.notice)
         }
+    }
+
+    /// Clears the chrome bar on screens that have one; otherwise sits on the
+    /// same 24pt baseline the bar would use.
+    private var bannerBottomInset: CGFloat {
+        let base = ChromeBar<EmptyView>.baseline
+        guard ownedGrid == .timeline, !(library?.items.isEmpty ?? true) else { return base }
+        return base + ChromeBar<EmptyView>.height + 8
     }
 
     private func togglePreview() -> KeyPress.Result {

@@ -63,7 +63,7 @@ struct PhotoGridView: View {
                         }
                         // Click empty space to deselect (cell taps take priority).
                         .onTapGesture { library.clearSelection() }
-                        .overlay(alignment: .trailing) { yearRail(proxy) }
+                        .overlay(alignment: .bottom) { chromeBar(proxy) }
                     }
                 }
             }
@@ -83,11 +83,6 @@ struct PhotoGridView: View {
                 .popover(isPresented: $showingFilters, arrowEdge: .bottom) {
                     FilterPanel(library: library)
                 }
-            }
-        }
-        .overlay(alignment: .bottom) {
-            if !library.items.isEmpty {
-                scaleSwitcher.padding(.bottom, 14)
             }
         }
         .sheet(item: $openStack) { rep in
@@ -172,63 +167,52 @@ struct PhotoGridView: View {
         .background(DS.bar.opacity(0.92))
     }
 
-    /// Right-edge year scrubber. Tapping a year jumps the timeline to its first
-    /// section, loading further pages first if that year isn't loaded yet.
+    /// The one bar at the bottom: granularity switcher on the left, year
+    /// scrubber on the right. Replaces both the free-floating 연도/월/일 pill
+    /// and the vertical year rail that used to hug the right edge — the rail
+    /// sat on top of the photos it was meant to help you reach.
     @ViewBuilder
-    private func yearRail(_ proxy: ScrollViewProxy) -> some View {
-        let years = library.loadedYears
-        if years.count > 1 {
-            VStack(spacing: 2) {
-                ForEach(years, id: \.self) { year in
-                    Button {
-                        Task {
-                            await library.ensureYearLoaded(year)
-                            if let id = library.firstSectionID(forYear: year) {
-                                withAnimation(.easeInOut(duration: 0.2)) {
-                                    proxy.scrollTo(id, anchor: .top)
-                                }
-                            }
-                        }
-                    } label: {
-                        Text(String(format: "%d", year))
-                            .font(.caption2)
-                            .monospacedDigit()
-                            .foregroundStyle(.secondary)
-                            // Was 6×2 padding — roughly a 10×20pt target.
-                            .padding(.horizontal, 8).padding(.vertical, 5)
-                            .frame(minWidth: 40, minHeight: 24)
-                            .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("\(year)년으로 이동")
-                }
-            }
-            .padding(.vertical, 8).padding(.horizontal, 3)
-            .dsFloating()
-            .padding(.trailing, 6)
-            // Fade in only once there's a meaningful span loaded.
-            .transition(.opacity)
+    private func chromeBar(_ proxy: ScrollViewProxy) -> some View {
+        ChromeBar {
+            ChromeSegment(options: TimelineScale.allCases,
+                          selection: library.scale,
+                          title: { $0.rawValue }) { library.setScale($0) }
+            ChromeDivider()
+            yearScrubber(proxy)
         }
+        .padding(.bottom, ChromeBar<EmptyView>.baseline)
     }
 
-    /// Floating 연도 / 월 / 일 granularity switcher (matches Synology Photos).
-    private var scaleSwitcher: some View {
-        HStack(spacing: 2) {
-            ForEach(TimelineScale.allCases) { scale in
+    /// Loaded years, spread evenly across the bar's right half. Tapping one
+    /// jumps the timeline to its first section, loading further pages first if
+    /// that year isn't loaded yet.
+    @ViewBuilder
+    private func yearScrubber(_ proxy: ScrollViewProxy) -> some View {
+        let years = library.loadedYears
+        HStack(spacing: 0) {
+            ForEach(years, id: \.self) { year in
                 Button {
-                    library.setScale(scale)
+                    Task {
+                        await library.ensureYearLoaded(year)
+                        if let id = library.firstSectionID(forYear: year) {
+                            withAnimation(.easeInOut(duration: 0.2)) {
+                                proxy.scrollTo(id, anchor: .top)
+                            }
+                        }
+                    }
                 } label: {
-                    Text(scale.rawValue)
-                        .font(.callout)
-                        .fontWeight(library.scale == scale ? .semibold : .regular)
-                        .foregroundStyle(library.scale == scale ? Color.primary : .secondary)
-                        .padding(.horizontal, 16).padding(.vertical, 6)
-                        .background { if library.scale == scale { Capsule().fill(.selection) } }
+                    Text(String(format: "%d", year))
+                        .font(.caption2)
+                        .monospacedDigit()
+                        .foregroundStyle(year == years.first ? Color.primary : .secondary)
+                        .frame(maxWidth: .infinity, minHeight: 26)
+                        .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
+                .accessibilityLabel("\(year)년으로 이동")
             }
         }
-        .padding(4)
-        .dsFloating()
+        .frame(maxWidth: .infinity)
+        .animation(.easeInOut(duration: 0.2), value: years)
     }
 }

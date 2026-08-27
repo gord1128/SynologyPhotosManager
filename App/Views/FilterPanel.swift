@@ -13,17 +13,10 @@ struct FilterPanel: View {
     @State private var saveName = ""
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 12) {
-                HStack(spacing: DS.s3) {
-                    Text("필터").font(.headline)
-                    Spacer()
-                    if library.activeFilterCount > 0 {
-                        Button("스마트 앨범으로 저장") { saveName = ""; showingSave = true }
-                            .buttonStyle(.link)
-                        Button("모두 지우기") { library.clearAllFilters() }.buttonStyle(.link)
-                    }
-                }
+        VStack(spacing: 0) {
+            header
+            ScrollView {
+                VStack(alignment: .leading, spacing: 12) {
 
                 section("파일 유형") {
                     Picker("파일 유형", selection: $library.typeFilter) {
@@ -82,8 +75,10 @@ struct FilterPanel: View {
                         facetDisclosure("조리개", library.facets.aperture, $library.selectedApertureIds)
                     }
                 }
+                }
+                .padding()
             }
-            .padding()
+            footer
         }
         .frame(width: 300, height: 460)
         .task { await library.loadFiltersIfNeeded() }
@@ -99,6 +94,61 @@ struct FilterPanel: View {
     /// Debounced: a filter panel is edited in bursts (tick, tick, tick), and
     /// each tick used to cost a full re-query.
     private func apply() { library.scheduleApplyFilters() }
+
+    /// Title, the two link actions, and the chip row of what is actually on.
+    private var header: some View {
+        VStack(alignment: .leading, spacing: 9) {
+            HStack(spacing: DS.s3) {
+                Text("필터").font(.headline)
+                Spacer()
+                if library.activeFilterCount > 0 {
+                    Button("스마트 앨범으로 저장") { saveName = ""; showingSave = true }
+                        .buttonStyle(.link)
+                    Button("모두 지우기") { library.clearAllFilters() }.buttonStyle(.link)
+                }
+            }
+            let chips = library.activeFilterChips
+            if !chips.isEmpty {
+                FlowRow(spacing: 5) {
+                    ForEach(chips) { chip in
+                        Button {
+                            chip.clear()
+                            apply()
+                        } label: {
+                            HStack(spacing: 4) {
+                                Text(chip.label).font(.caption)
+                                Image(systemName: "xmark").font(.system(size: 8, weight: .bold))
+                            }
+                            .foregroundStyle(Color.accentColor)
+                            .padding(.horizontal, 8).padding(.vertical, 3)
+                            .background(Color.accentColor.opacity(0.10), in: Capsule())
+                            .overlay(Capsule().strokeBorder(Color.accentColor.opacity(0.22)))
+                        }
+                        .buttonStyle(.plain)
+                        .help("\(chip.label) 조건 지우기")
+                    }
+                }
+            }
+        }
+        .padding(.horizontal, 14).padding(.top, 14).padding(.bottom, 10)
+        .background(.bar)
+        .overlay(alignment: .bottom) { Divider() }
+    }
+
+    /// How many photos the current conditions actually match, pinned where it
+    /// can always be read.
+    private var footer: some View {
+        HStack(spacing: 4) {
+            Text("\(library.items.count.formatted())장")
+                .font(.callout.monospacedDigit().weight(.medium))
+            Text(library.hasMorePages ? "이상 일치" : "일치")
+                .font(.callout).foregroundStyle(.secondary)
+            Spacer()
+        }
+        .padding(.horizontal, 14).padding(.vertical, 10)
+        .background(.bar)
+        .overlay(alignment: .top) { Divider() }
+    }
 
     private var hasExifFacets: Bool {
         !(library.facets.camera.isEmpty && library.facets.lens.isEmpty && library.facets.iso.isEmpty && library.facets.aperture.isEmpty)

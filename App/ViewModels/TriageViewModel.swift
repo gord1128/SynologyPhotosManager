@@ -30,6 +30,49 @@ final class TriageViewModel {
     private var reachedEnd = false
     private let pageSize = 200
 
+    /// The library size, so 남음 is the real remainder rather than "what we
+    /// happen to have paged in".
+    private(set) var totalCount = 0
+
+    /// How many photos one round covers.
+    ///
+    /// The rail draws ONE CELL PER PHOTO, so it can only ever describe a
+    /// bounded stretch — 2,140 cells is not a rail, it is a line. Framing the
+    /// pass as rounds of 50 also gives a 2,000-photo job something finishable
+    /// in it: the completion screen arrives 43 times instead of once.
+    static let roundSize = 50
+
+    /// 1-based index of the round the cursor is in, and how many rounds there
+    /// are in total.
+    var roundIndex: Int { index / Self.roundSize + 1 }
+    var roundCount: Int { max(1, Int(ceil(Double(max(totalCount, items.count)) / Double(Self.roundSize)))) }
+    /// Decisions made inside the current round.
+    var decidedInRound: Int { index % Self.roundSize }
+
+    /// One cell of the progress rail.
+    enum RailCell: Equatable { case kept, deletePending, current, undecided, beyond }
+
+    /// The current round's cells, left to right.
+    var railCells: [RailCell] {
+        let start = (index / Self.roundSize) * Self.roundSize
+        return (start..<(start + Self.roundSize)).map { i in
+            guard i < items.count else { return .beyond }
+            if i == index { return .current }
+            switch decisions[items[i].id] {
+            case .kept: return .kept
+            case .deletePending: return .deletePending
+            case nil: return .undecided
+            }
+        }
+    }
+
+    /// Photos not yet decided.
+    var remainingCount: Int { max(0, max(totalCount, items.count) - decidedCount) }
+
+    /// Whether a card exists `offset` positions behind the current one — drives
+    /// how many ghost cards the deck shows.
+    func hasNext(offset: Int) -> Bool { items.indices.contains(index + offset) }
+
     init(service: FotoService) {
         self.service = service
         self.thumbnailLoader = ThumbnailLoader(service: service)
@@ -58,6 +101,7 @@ final class TriageViewModel {
 
     func loadInitial() async {
         guard items.isEmpty, !isLoading else { return }
+        if let count = try? await service.itemCount() { totalCount = count }
         await loadMore()
     }
 
