@@ -55,7 +55,10 @@ private struct GeneralSettings: View {
                             if user.isAdmin {
                                 Text("관리자").font(.caption2)
                                     .padding(.horizontal, 5).padding(.vertical, 1)
-                                    .background(.blue.opacity(0.2), in: Capsule())
+                                    // The last hardcoded hue in the app. Next to the
+                                    // teal badges it read as a stray system control.
+                                    .foregroundStyle(Color.accentColor)
+                                    .background(Color.accentColor.opacity(0.18), in: Capsule())
                             }
                         }
                     } label: { rowLabel("사용자", "person.fill", .accentColor) }
