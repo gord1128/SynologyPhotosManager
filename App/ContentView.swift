@@ -18,26 +18,65 @@ struct ContentView: View {
     @State private var showingAdd = false
     @State private var showingPreview = false
 
-    /// The selection currently feeding the inspector + preview, based on which
-    /// center view is active.
+    /// Which grid ContentView itself owns. Every other destination (앨범, 사람,
+    /// 지도, 추억, 정리, 최근 추가) manages its own selection inside its view,
+    /// so ContentView must claim NOTHING there.
+    ///
+    /// The old `== .folders ? folders : library` fell through to `library` for
+    /// EVERY other sidebar item, so a photo selected on the timeline kept its
+    /// info panel open over the 사람 grid, and Space/←/→ still drove the hidden
+    /// timeline selection from screens that have nothing to do with it.
+    private enum OwnedGrid { case timeline, folders, none }
+    private var ownedGrid: OwnedGrid {
+        switch model.selectedSidebarItem {
+        case .folders: return .folders
+        case .timeline, .none: return .timeline
+        default: return .none
+        }
+    }
+
+    /// The selection currently feeding the inspector + preview.
     private var activeItem: FotoItem? {
-        model.selectedSidebarItem == .folders ? folders?.selectedItem : library?.selectedItem
+        switch ownedGrid {
+        case .timeline: return library?.selectedItem
+        case .folders: return folders?.selectedItem
+        case .none: return nil
+        }
     }
     private var activeLoader: ThumbnailLoader? {
-        model.selectedSidebarItem == .folders ? folders?.thumbnailLoader : library?.thumbnailLoader
+        switch ownedGrid {
+        case .timeline: return library?.thumbnailLoader
+        case .folders: return folders?.thumbnailLoader
+        case .none: return nil
+        }
     }
     private func activeSelectPrevious() {
-        if model.selectedSidebarItem == .folders { folders?.selectPrevious() } else { library?.selectPrevious() }
+        switch ownedGrid {
+        case .timeline: library?.selectPrevious()
+        case .folders: folders?.selectPrevious()
+        case .none: break
+        }
     }
     private func activeSelectNext() {
-        if model.selectedSidebarItem == .folders { folders?.selectNext() } else { library?.selectNext() }
+        switch ownedGrid {
+        case .timeline: library?.selectNext()
+        case .folders: folders?.selectNext()
+        case .none: break
+        }
     }
     private func activeClearSelection() {
-        if model.selectedSidebarItem == .folders { folders?.clearSelection() } else { library?.clearSelection() }
+        switch ownedGrid {
+        case .timeline: library?.clearSelection()
+        case .folders: folders?.clearSelection()
+        case .none: break
+        }
     }
     private var activeHasSelection: Bool {
-        let ids = model.selectedSidebarItem == .folders ? folders?.selectedIDs : library?.selectedIDs
-        return !(ids?.isEmpty ?? true)
+        switch ownedGrid {
+        case .timeline: return !(library?.selectedIDs.isEmpty ?? true)
+        case .folders: return !(folders?.selectedIDs.isEmpty ?? true)
+        case .none: return false
+        }
     }
 
     var body: some View {
@@ -232,6 +271,9 @@ struct ContentView: View {
             Task { await albums?.reload() }
             Task { await people?.reload() }
         }
+        // Navigating away closes the preview: it is a full-window overlay, and
+        // leaving it up over a different screen is the same leak as the panel.
+        .onChange(of: model.selectedSidebarItem) { showingPreview = false }
         // Route main-menu commands to whichever center view is active.
         .onChange(of: model.menuCommandCounter) { dispatchMenuCommand() }
         // Opening a smart album (from the sidebar) applies its saved filter to the
